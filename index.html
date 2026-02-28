@@ -3,32 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard</title>
+    <title>FX Bias Pro</title>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --accent: #2962ff; }
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow: hidden; }
-        header { height: 70px; display: flex; align-items: center; padding: 0 15px; background: var(--panel); border-bottom: 1px solid #363c4e; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-        .controls { display: flex; gap: 10px; width: 100%; }
-        .btn-upload { flex: 1; position: relative; background: #2a2e39; border: 1px solid #363c4e; border-radius: 6px; padding: 8px; text-align: center; }
-        .btn-upload label { display: block; font-size: 11px; color: var(--accent); font-weight: bold; margin-bottom: 4px; }
-        .btn-upload input { font-size: 10px; width: 100%; color: #787b86; }
-        #chart { width: 100vw; height: calc(100vh - 70px); }
+        :root { --bg: #131722; --panel: #1e222d; --accent: #2962ff; }
+        body { margin: 0; background: var(--bg); color: #d1d4dc; font-family: sans-serif; overflow: hidden; }
+        header { height: 85px; display: flex; gap: 10px; padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .upload-zone { flex: 1; border: 2px dashed #363c4e; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+        .upload-zone:active { background: #2a2e39; }
+        .upload-zone label { font-size: 12px; font-weight: bold; color: var(--accent); margin-bottom: 4px; pointer-events: none; }
+        .upload-zone span { font-size: 10px; color: #787b86; pointer-events: none; }
+        .upload-zone input { position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        #chart { width: 100vw; height: calc(100vh - 105px); }
+        #status { position: absolute; bottom: 10px; left: 10px; font-size: 10px; color: #4caf50; z-index: 10; }
     </style>
 </head>
 <body>
     <header>
-        <div class="controls">
-            <div class="btn-upload">
-                <label>D1 CSV</label>
-                <input type="file" id="d1" accept=".csv">
-            </div>
-            <div class="btn-upload">
-                <label>H1 CSV</label>
-                <input type="file" id="h1" accept=".csv">
-            </div>
+        <div class="upload-zone">
+            <label>1. 日足 (D1)</label>
+            <span id="d1-info">ファイルを選択</span>
+            <input type="file" id="d1" accept=".csv">
+        </div>
+        <div class="upload-zone">
+            <label>2. 1時間足 (H1)</label>
+            <span id="h1-info">ファイルを選択</span>
+            <input type="file" id="h1" accept=".csv">
         </div>
     </header>
+    <div id="status"></div>
     <div id="chart"></div>
 
     <script>
@@ -36,50 +39,64 @@
             layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
             grid: { vertLines: { color: '#2b2b43' }, horzLines: { color: '#2b2b43' } },
             timeScale: { timeVisible: true, borderVisible: false },
-            rightPriceScale: { borderVisible: false }
+            rightPriceScale: { borderVisible: false, autoScale: true }
         });
 
-        const sD = chart.addLineSeries({ color: '#2962ff', lineWidth: 3, title: 'Daily' });
-        const sH = chart.addLineSeries({ color: '#ff9800', lineWidth: 1, title: 'Hourly' });
-        const s4 = chart.addLineSeries({ color: '#f7525f', lineWidth: 2, title: '4H' });
+        const sD = chart.addLineSeries({ color: '#2962ff', lineWidth: 3, title: '日足' });
+        const sH = chart.addLineSeries({ color: '#ff9800', lineWidth: 1, title: '1時間' });
+        const s4 = chart.addLineSeries({ color: '#f7525f', lineWidth: 2, title: '4時間' });
         const sM = chart.addLineSeries({ color: '#4caf50', lineWidth: 1, lineStyle: 2, title: '5SMA' });
 
-        function process(text, isH) {
-            const rows = text.split(/\r?\n/).filter(r => r.includes(','));
+        function parse(text, isH) {
+            const lines = text.split(/\r?\n/).filter(l => l.includes(','));
             const res = [];
-            for(let i=1; i<rows.length; i++) {
-                const c = rows[i].split(',');
+            for(let i=1; i<lines.length; i++) {
+                const c = lines[i].split(',');
+                if(c.length < 3) continue;
+                // 日付の正規化 (ハイフンをスラッシュに変換して解析精度を上げる)
                 let tStr = c[0].trim().replace(/-/g, '/');
-                let t = isH ? Math.floor(new Date(tStr).getTime()/1000) : Math.floor(new Date(tStr+" 00:00").getTime()/1000);
-                if(!isNaN(t)) res.push({ time: t, value: parseFloat(c[2]) });
+                let dObj = new Date(isH ? tStr : tStr + " 00:00:00");
+                let t = Math.floor(dObj.getTime() / 1000);
+                
+                if(!isNaN(t)) {
+                    res.push({ time: t, value: parseFloat(c[2]) });
+                }
             }
             return res.sort((a,b) => a.time - b.time);
         }
 
-        function bind(id, isH, series) {
+        function setup(id, isH, series, infoId) {
             document.getElementById(id).onchange = e => {
                 const f = e.target.files[0];
                 if(!f) return;
                 const r = new FileReader();
                 r.onload = () => {
-                    const d = process(r.result, isH);
-                    if(isH) {
-                        sH.setData(d);
-                        s4.setData(d.filter(x => new Date(x.time*1000).getHours() % 4 === 0));
-                        const sma = [];
-                        for(let i=4; i<d.length; i++) {
-                            sma.push({ time: d[i].time, value: (d[i].value+d[i-1].value+d[i-2].value+d[i-3].value+d[i-4].value)/5 });
+                    const d = parse(r.result, isH);
+                    if(d.length > 0) {
+                        if(isH) {
+                            sH.setData(d);
+                            s4.setData(d.filter(x => new Date(x.time*1000).getHours() % 4 === 0));
+                            const sma = [];
+                            for(let i=4; i<d.length; i++) {
+                                sma.push({ time: d[i].time, value: (d[i].value+d[i-1].value+d[i-2].value+d[i-3].value+d[i-4].value)/5 });
+                            }
+                            sM.setData(sma);
+                        } else {
+                            sD.setData(d);
                         }
-                        sM.setData(sma);
-                    } else sD.setData(d);
+                        document.getElementById(infoId).innerText = d.length + "件 完了";
+                        document.getElementById('status').innerText = f.name + " を読み込みました";
+                    } else {
+                        alert("データが見つかりませんでした。CSVの形式を確認してください。");
+                    }
                 };
                 r.readAsText(f);
             };
         }
 
-        bind('d1', false, sD);
-        bind('h1', true, sH);
-        window.onresize = () => chart.applyOptions({ width: window.innerWidth, height: window.innerHeight - 70 });
+        setup('d1', false, sD, 'd1-info');
+        setup('h1', true, sH, 'h1-info');
+        window.onresize = () => chart.applyOptions({ width: window.innerWidth, height: window.innerHeight - 105 });
     </script>
 </body>
 </html>
