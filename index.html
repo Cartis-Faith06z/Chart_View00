@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Bias Dashboard</title>
+    <title>FX Bias Dashboard Pro</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --grid: #2b2b43; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; }
@@ -68,7 +68,6 @@
         logEl.innerHTML = `[${time}] ${msg}<br>` + logEl.innerHTML;
     }
 
-    // 自前で日付パースを行う（ブラウザ互換性向上）
     function parseCSVDate(str) {
         try {
             const cleanStr = str.trim().replace(/-/g, '/');
@@ -96,24 +95,17 @@
     function processCSV(text, label) {
         const lines = text.split(/\r?\n/).filter(line => line.includes(','));
         const result = [];
-        let errorCount = 0;
-
         for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',');
             if (cols.length < 3) continue;
-
             const ts = parseCSVDate(cols[0]);
             const val = parseFloat(cols[2]);
-
             if (ts !== null && !isNaN(val)) {
                 result.push({ t: ts, v: val });
-            } else {
-                errorCount++;
             }
         }
-        
         const sorted = result.sort((a, b) => a.t - b.t);
-        addLog(`${label}: ${sorted.length}件読込完了 (エラー行: ${errorCount})`);
+        addLog(`${label}: ${sorted.length}件読込完了`);
         return sorted;
     }
 
@@ -128,7 +120,6 @@
     }
 
     function draw() {
-        // 解像度対応
         const dpr = window.devicePixelRatio || 1;
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width * dpr;
@@ -142,7 +133,7 @@
         ctx.fillStyle = "#131722";
         ctx.fillRect(0, 0, w, h);
 
-        // 表示範囲の決定 (H1を優先)
+        // 1. 時間範囲の決定
         if (hourlyData.length > 0) {
             rangeMin = hourlyData[0].t;
             rangeMax = hourlyData[hourlyData.length - 1].t;
@@ -153,43 +144,56 @@
             return;
         }
 
+        // 2. Y軸のスケール決定 (MAX/MIN ± 3%)
+        let allVisibleValues = [];
+        [hourlyData, dailyData, smaData].forEach(dataset => {
+            dataset.forEach(d => {
+                if (d.t >= rangeMin && d.t <= rangeMax) allVisibleValues.push(d.v);
+            });
+        });
+
+        if (allVisibleValues.length === 0) return;
+
+        const dataMin = Math.min(...allVisibleValues);
+        const dataMax = Math.max(...allVisibleValues);
+        const yLimitMin = dataMin - 3; // 下限 -3%
+        const yLimitMax = dataMax + 3; // 上限 +3%
+        const yRange = yLimitMax - yLimitMin || 1;
+
         const tRange = rangeMax - rangeMin || 1;
         const getX = (t) => pad.left + (t - rangeMin) / tRange * (w - pad.left - pad.right);
-        const getY = (v) => pad.top + (1 - v / 100) * (h - pad.top - pad.bottom);
+        const getY = (v) => pad.top + (1 - (v - yLimitMin) / yRange) * (h - pad.top - pad.bottom);
 
-        // グリッドと％目盛り
+        // グリッドと％目盛り (5ステップで描画)
         ctx.strokeStyle = "#2b2b43";
         ctx.lineWidth = 1;
         ctx.font = "10px sans-serif";
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
 
-        for (let p = 0; p <= 100; p += 10) {
-            const y = getY(p);
+        for (let i = 0; i <= 5; i++) {
+            const val = yLimitMin + (yRange * i / 5);
+            const y = getY(val);
             ctx.beginPath();
             ctx.moveTo(pad.left, y);
             ctx.lineTo(w - pad.right, y);
             ctx.stroke();
             
             ctx.fillStyle = "#787b86";
-            ctx.fillText(p + "%", w - 5, y);
+            ctx.fillText(val.toFixed(1) + "%", w - 5, y);
         }
 
-        // 日付ラベル (24時間 = 86400秒ごとに判定)
+        // 日付ラベル
         ctx.textAlign = "center";
         let lastLabelX = -100;
         for (let t = rangeMin; t <= rangeMax; t += 3600) {
             const dt = new Date(t * 1000);
-            if (dt.getHours() === 0) { // 0時のみ日付を描画
+            if (dt.getHours() === 0) {
                 const x = getX(t);
                 if (x >= pad.left && x <= w - pad.right) {
                     ctx.strokeStyle = "#1e222d";
-                    ctx.beginPath();
-                    ctx.moveTo(x, pad.top);
-                    ctx.lineTo(x, h - pad.bottom);
-                    ctx.stroke();
-
-                    if (x - lastLabelX > 50) {
+                    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, h - pad.bottom); ctx.stroke();
+                    if (x - lastLabelX > 60) {
                         ctx.fillStyle = "#787b86";
                         ctx.fillText((dt.getMonth() + 1) + "/" + dt.getDate(), x, h - 15);
                         lastLabelX = x;
@@ -199,42 +203,33 @@
         }
 
         function plotLine(data, color, width, dash = []) {
-            // 表示範囲内のデータのみ抽出
             const pts = data.filter(d => d.t >= rangeMin && d.t <= rangeMax);
             if (pts.length < 2) return;
-
             ctx.strokeStyle = color;
             ctx.lineWidth = width;
             ctx.setLineDash(dash);
             ctx.beginPath();
-            
             pts.forEach((pt, i) => {
                 const x = getX(pt.t);
                 const y = getY(pt.v);
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             });
             ctx.stroke();
             ctx.setLineDash([]);
         }
 
-        // 描画 (1H -> SMA -> D1 の順で重ねる)
         plotLine(hourlyData, "#ff9800", 1.2);
         plotLine(smaData, "#4caf50", 1, [4, 4]);
         plotLine(dailyData, "#2962ff", 3);
         
-        addLog("キャンバスを更新しました。");
+        addLog(`表示範囲: ${yLimitMin.toFixed(1)}% 〜 ${yLimitMax.toFixed(1)}%`);
     }
 
-    // ファイル入力設定
     document.getElementById('d1Input').onchange = e => {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = () => {
-            dailyData = processCSV(reader.result, "日足");
-            draw();
-        };
+        reader.onload = () => { dailyData = processCSV(reader.result, "日足"); draw(); };
         reader.readAsText(file);
     };
 
@@ -251,9 +246,7 @@
     };
 
     window.onresize = draw;
-    // 初期描画（背景のみ）
     window.onload = draw;
 </script>
-
 </body>
 </html>
