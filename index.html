@@ -2,44 +2,46 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Bias Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FX Dashboard Debug</title>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --accent: #2962ff; }
-        body { margin: 0; background: var(--bg); color: #d1d4dc; font-family: sans-serif; overflow: hidden; }
-        header { height: 85px; display: flex; gap: 10px; padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .upload-zone { flex: 1; border: 2px dashed #363c4e; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-        .upload-zone:active { background: #2a2e39; }
-        .upload-zone label { font-size: 12px; font-weight: bold; color: var(--accent); margin-bottom: 4px; pointer-events: none; }
-        .upload-zone span { font-size: 10px; color: #787b86; pointer-events: none; }
-        .upload-zone input { position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-        #chart { width: 100vw; height: calc(100vh - 105px); }
-        #status { position: absolute; bottom: 10px; left: 10px; font-size: 10px; color: #4caf50; z-index: 10; }
+        body { background: #131722; color: white; font-family: sans-serif; margin: 0; padding: 10px; }
+        .controls { background: #1e222d; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #363c4e; }
+        .input-item { margin-bottom: 15px; }
+        label { display: block; font-size: 14px; margin-bottom: 5px; color: #2962ff; font-weight: bold; }
+        input[type="file"] { width: 100%; padding: 8px; background: #2a2e39; color: white; border: 1px solid #363c4e; }
+        #log { background: #000; color: #0f0; font-size: 10px; padding: 5px; height: 60px; overflow-y: auto; margin-bottom: 10px; border: 1px solid #333; }
+        #chart { width: 100%; height: 400px; background: #131722; }
     </style>
 </head>
 <body>
-    <header>
-        <div class="upload-zone">
-            <label>1. 日足 (D1)</label>
-            <span id="d1-info">ファイルを選択</span>
-            <input type="file" id="d1" accept=".csv">
+    <div class="controls">
+        <div id="log">ログを表示中... (ファイルを読み込むとここが動きます)</div>
+        
+        <div class="input-item">
+            <label>1. 日足 (D1) CSVを選択</label>
+            <input type="file" id="d1" accept=".csv, text/csv, *">
         </div>
-        <div class="upload-zone">
-            <label>2. 1時間足 (H1)</label>
-            <span id="h1-info">ファイルを選択</span>
-            <input type="file" id="h1" accept=".csv">
+        <div class="input-item">
+            <label>2. 1時間足 (H1) CSVを選択</label>
+            <input type="file" id="h1" accept=".csv, text/csv, *">
         </div>
-    </header>
-    <div id="status"></div>
+    </div>
     <div id="chart"></div>
 
     <script>
+        const log = (msg) => {
+            const el = document.getElementById('log');
+            el.innerHTML += "<br>" + msg;
+            el.scrollTop = el.scrollHeight;
+        };
+
+        // チャートの作成
         const chart = LightweightCharts.createChart(document.getElementById('chart'), {
             layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
             grid: { vertLines: { color: '#2b2b43' }, horzLines: { color: '#2b2b43' } },
             timeScale: { timeVisible: true, borderVisible: false },
-            rightPriceScale: { borderVisible: false, autoScale: true }
         });
 
         const sD = chart.addLineSeries({ color: '#2962ff', lineWidth: 3, title: '日足' });
@@ -48,55 +50,62 @@
         const sM = chart.addLineSeries({ color: '#4caf50', lineWidth: 1, lineStyle: 2, title: '5SMA' });
 
         function parse(text, isH) {
-            const lines = text.split(/\r?\n/).filter(l => l.includes(','));
-            const res = [];
-            for(let i=1; i<lines.length; i++) {
-                const c = lines[i].split(',');
-                if(c.length < 3) continue;
-                // 日付の正規化 (ハイフンをスラッシュに変換して解析精度を上げる)
-                let tStr = c[0].trim().replace(/-/g, '/');
-                let dObj = new Date(isH ? tStr : tStr + " 00:00:00");
-                let t = Math.floor(dObj.getTime() / 1000);
-                
-                if(!isNaN(t)) {
-                    res.push({ time: t, value: parseFloat(c[2]) });
+            try {
+                const lines = text.split(/\r?\n/).filter(l => l.includes(','));
+                const res = [];
+                for(let i=1; i<lines.length; i++) {
+                    const c = lines[i].split(',');
+                    if(c.length < 3) continue;
+                    
+                    let tStr = c[0].trim().replace(/-/g, '/');
+                    // スマホ・ブラウザ互換性のための日付処理
+                    let dateObj = new Date(isH ? tStr : tStr + " 00:00:00");
+                    let t = Math.floor(dateObj.getTime() / 1000);
+                    
+                    if(!isNaN(t)) {
+                        res.push({ time: t, value: parseFloat(c[2]) });
+                    }
                 }
+                res.sort((a,b) => a.time - b.time);
+                log( (isH ? "H1" : "D1") + "パース成功: " + res.length + "件");
+                return res;
+            } catch(e) {
+                log("エラー: " + e.message);
+                return [];
             }
-            return res.sort((a,b) => a.time - b.time);
         }
 
-        function setup(id, isH, series, infoId) {
-            document.getElementById(id).onchange = e => {
+        function setup(id, isH, series) {
+            document.getElementById(id).onchange = (e) => {
                 const f = e.target.files[0];
                 if(!f) return;
+                log(f.name + " を選択しました");
                 const r = new FileReader();
                 r.onload = () => {
-                    const d = parse(r.result, isH);
-                    if(d.length > 0) {
+                    log("ファイル読込完了、解析開始...");
+                    const data = parse(r.result, isH);
+                    if(data.length > 0) {
+                        series.setData(data);
                         if(isH) {
-                            sH.setData(d);
-                            s4.setData(d.filter(x => new Date(x.time*1000).getHours() % 4 === 0));
+                            s4.setData(data.filter(x => new Date(x.time*1000).getHours() % 4 === 0));
                             const sma = [];
-                            for(let i=4; i<d.length; i++) {
-                                sma.push({ time: d[i].time, value: (d[i].value+d[i-1].value+d[i-2].value+d[i-3].value+d[i-4].value)/5 });
+                            for(let i=4; i<data.length; i++) {
+                                sma.push({ time: data[i].time, value: (data[i].value+data[i-1].value+data[i-2].value+data[i-3].value+data[i-4].value)/5 });
                             }
                             sM.setData(sma);
-                        } else {
-                            sD.setData(d);
                         }
-                        document.getElementById(infoId).innerText = d.length + "件 完了";
-                        document.getElementById('status').innerText = f.name + " を読み込みました";
-                    } else {
-                        alert("データが見つかりませんでした。CSVの形式を確認してください。");
+                        log("チャートへの描画が完了しました。");
                     }
                 };
+                r.onerror = () => log("ファイル読み込み中にエラーが発生しました。");
                 r.readAsText(f);
             };
         }
 
-        setup('d1', false, sD, 'd1-info');
-        setup('h1', true, sH, 'h1-info');
-        window.onresize = () => chart.applyOptions({ width: window.innerWidth, height: window.innerHeight - 105 });
+        setup('d1', false, sD);
+        setup('h1', true, sH);
+
+        window.onresize = () => chart.applyOptions({ width: window.innerWidth - 20 });
     </script>
 </body>
 </html>
