@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard Pro</title>
+    <title>FX Dashboard Pro (with Pivot)</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; }
         
         header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; }
-        .file-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .file-controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
         .file-input-group { background: #2a2e39; border: 1px solid #444; padding: 5px; border-radius: 4px; }
         .file-input-group label { display: block; font-size: 10px; color: var(--blue); font-weight: bold; margin-bottom: 3px; }
         input[type="file"] { font-size: 11px; width: 100%; color: #aaa; }
@@ -31,9 +31,9 @@
         .tt-date { color: #fff; border-bottom: 1px solid #444; margin-bottom: 4px; font-weight: bold; }
         .tt-row { display: flex; justify-content: space-between; gap: 10px; }
         
-        .legend { display: flex; justify-content: center; gap: 15px; padding: 5px; background: var(--panel); font-size: 10px; border-top: 1px solid #363c4e; }
+        .legend { display: flex; justify-content: center; gap: 10px; padding: 5px; background: var(--panel); font-size: 9px; border-top: 1px solid #363c4e; flex-wrap: wrap; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
-        .line-box { width: 12px; height: 2px; }
+        .line-box { width: 10px; height: 2px; }
     </style>
 </head>
 <body>
@@ -47,6 +47,10 @@
         <div class="file-input-group">
             <label>2. 1時間足 (H1) CSV</label>
             <input type="file" id="h1In">
+        </div>
+        <div class="file-input-group">
+            <label>3. Pivot CSV</label>
+            <input type="file" id="pivotIn">
         </div>
     </div>
 </header>
@@ -64,7 +68,7 @@
     </div>
 </div>
 
-<div id="log">ログ: CSVを順番に読み込んでください。</div>
+<div id="log">ログ: 各CSVを読み込んでください。</div>
 
 <div class="chart-container" id="container">
     <div id="tooltip"></div>
@@ -75,7 +79,10 @@
     <div class="legend-item"><div class="line-box" style="background:var(--price)"></div>価格</div>
     <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>日足</div>
     <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>1時間</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>5SMA</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>10SMA</div>
+    <div class="legend-item"><div class="line-box" style="background:#f44336"></div>R1-5</div>
+    <div class="legend-item"><div class="line-box" style="background:#ffeb3b"></div>PP</div>
+    <div class="legend-item"><div class="line-box" style="background:#2196f3"></div>S1-5</div>
 </div>
 
 <script>
@@ -89,7 +96,7 @@
     const scrollSld = document.getElementById('scroll');
     const zoomDisp = document.getElementById('zoomDisp');
 
-    let dataD1 = [], dataH1 = [], dataSMA = [];
+    let dataD1 = [], dataH1 = [], dataSMA = [], dataPivot = [];
     let mouseX = -1;
     const pad = { top: 20, right: 65, bottom: 30, left: 10, gap: 25 };
 
@@ -114,8 +121,7 @@
             const c = lines[i].split(',');
             if (c.length < 3) continue;
             const t = parseCSVDate(c[0]);
-            const v = parseFloat(c[2]); // 強弱値
-            // 4列目に価格があるか確認し、数値でなければnullにする
+            const v = parseFloat(c[2]);
             const pRaw = c[3] ? c[3].trim() : "";
             const p = (pRaw !== "" && !isNaN(parseFloat(pRaw))) ? parseFloat(pRaw) : null;
             if (t !== null && !isNaN(v)) res.push({ t, v, p });
@@ -123,23 +129,35 @@
         return res.sort((a, b) => a.t - b.t);
     }
 
-    // SMA計算の修正 (10SMA)
+    function parsePivotCSV(text) {
+        const lines = text.split(/\r?\n/).filter(l => l.includes(','));
+        const res = [];
+        // Header index: Date(1), R5(2), R4(3), R3(4), R2(5), R1(6), PP(7), S1(8), S2(9), S3(10), S4(11), S5(12)
+        for (let i = 1; i < lines.length; i++) {
+            const c = lines[i].split(',');
+            if (c.length < 13) continue;
+            const t = parseCSVDate(c[1]);
+            if (t === null) continue;
+            res.push({
+                t: t,
+                levels: {
+                    R5: parseFloat(c[2]), R4: parseFloat(c[3]), R3: parseFloat(c[4]), R2: parseFloat(c[5]), R1: parseFloat(c[6]),
+                    PP: parseFloat(c[7]),
+                    S1: parseFloat(c[8]), S2: parseFloat(c[9]), S3: parseFloat(c[10]), S4: parseFloat(c[11]), S5: parseFloat(c[12])
+                }
+            });
+        }
+        return res.sort((a, b) => a.t - b.t);
+    }
+
     function getSMA(data, n) {
         const res = [];
         if (data.length < n) return res;
         for (let i = 0; i < data.length; i++) {
             if (i < n - 1) continue;
             let sum = 0;
-            let count = 0;
-            for (let j = 0; j < n; j++) {
-                if(!isNaN(data[i - j].v)) {
-                    sum += data[i - j].v;
-                    count++;
-                }
-            }
-            if (count === n) {
-                res.push({ t: data[i].t, v: sum / n });
-            }
+            for (let j = 0; j < n; j++) sum += data[i - j].v;
+            res.push({ t: data[i].t, v: sum / n });
         }
         return res;
     }
@@ -155,12 +173,10 @@
         ctx.fillStyle = "#131722";
         ctx.fillRect(0, 0, w, h);
 
-        // データがない場合は描画しない
         const hasH1 = dataH1.length > 0;
         const hasD1 = dataD1.length > 0;
         if (!hasH1 && !hasD1) return;
 
-        // 基準となる時間の計算
         const baseData = hasH1 ? dataH1 : dataD1;
         const totalDur = baseData[baseData.length-1].t - baseData[0].t;
         const viewDur = parseInt(zoomSld.value) * 86400;
@@ -174,37 +190,38 @@
         const pTop = pad.top, pBot = splitY;
         const rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
-        // 表示範囲内のデータを集計してスケールを決定
         let vList = [], pList = [];
-        [dataH1, dataD1, dataSMA].forEach(dataset => {
-            dataset.forEach(d => {
-                if(d.t >= vMin && d.t <= vMax) {
-                    if(d.v !== undefined && d.v !== null) vList.push(d.v);
-                    if(d.p !== undefined && d.p !== null) pList.push(d.p);
-                }
-            });
+        [dataH1, dataD1, dataSMA].forEach(ds => ds.forEach(d => {
+            if(d.t >= vMin && d.t <= vMax) {
+                if(d.v !== undefined) vList.push(d.v);
+                if(d.p !== undefined && d.p !== null) pList.push(d.p);
+            }
+        }));
+
+        // Pivotをスケール計算に含める
+        dataPivot.forEach(d => {
+            if (d.t >= vMin - 86400 && d.t <= vMax) {
+                Object.values(d.levels).forEach(val => { if(!isNaN(val)) pList.push(val); });
+            }
         });
 
         if(vList.length === 0) return;
         const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
-        
-        // 価格リストが空の場合のデフォルト
-        const pLo = pList.length > 0 ? Math.min(...pList) * 0.999 : 0;
-        const pHi = pList.length > 0 ? Math.max(...pList) * 1.001 : 1;
+        const pLo = pList.length > 0 ? Math.min(...pList) * 0.9995 : 0;
+        const pHi = pList.length > 0 ? Math.max(...pList) * 1.0005 : 1;
         const pR = pHi - pLo || 0.001;
 
         const getX = (t) => pad.left + (t - vMin) / (vMax - vMin) * (w - pad.left - pad.right);
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-        // グリッド描画
+        // グリッド
         ctx.lineWidth = 1; ctx.font = "9px sans-serif"; ctx.textAlign = "right";
         ctx.strokeStyle = "#2b2b43"; ctx.fillStyle = "#787b86";
         for (let i = 0; i <= 4; i++) {
             const vy = getYRatio(vLo + (vR * i / 4));
             ctx.beginPath(); ctx.moveTo(pad.left, vy); ctx.lineTo(w - pad.right, vy); ctx.stroke();
             ctx.fillText((vLo + (vR * i / 4)).toFixed(1) + "%", w - 5, vy + 3);
-            
             if (pList.length > 0) {
                 const py = getYPrice(pLo + (pR * i / 4));
                 ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(w - pad.right, py); ctx.stroke();
@@ -212,6 +229,40 @@
             }
         }
 
+        // Pivotの描画 (価格チャートに水平線を表示)
+        dataPivot.forEach(d => {
+            const tStart = d.t;
+            const tEnd = d.t + 86400;
+            if (tEnd < vMin || tStart > vMax) return;
+            
+            const x1 = Math.max(getX(tStart), pad.left);
+            const x2 = Math.min(getX(tEnd), w - pad.right);
+            if (x2 <= x1) return;
+
+            Object.entries(d.levels).forEach(([key, val]) => {
+                if (isNaN(val)) return;
+                let color = "#444";
+                if (key.startsWith('R')) color = "rgba(244, 67, 54, 0.4)";
+                else if (key.startsWith('S')) color = "rgba(33, 150, 243, 0.4)";
+                else if (key === 'PP') color = "rgba(255, 235, 59, 0.5)";
+
+                ctx.strokeStyle = color;
+                ctx.lineWidth = key === 'PP' ? 1.5 : 1;
+                ctx.beginPath();
+                ctx.moveTo(x1, getYPrice(val));
+                ctx.lineTo(x2, getYPrice(val));
+                ctx.stroke();
+                
+                // 右端にラベル
+                if (x2 > w - pad.right - 10) {
+                    ctx.fillStyle = color;
+                    ctx.textAlign = "left";
+                    ctx.fillText(key, x2 + 2, getYPrice(val) + 3);
+                }
+            });
+        });
+
+        // 描画
         function plotLine(dataset, field, color, width, yFunc, dash = []) {
             const pts = dataset.filter(d => d.t >= vMin && d.t <= vMax && d[field] !== null);
             if (pts.length < 2) return;
@@ -224,26 +275,21 @@
             ctx.stroke(); ctx.setLineDash([]);
         }
 
-        // 描画実行
-       plotLine(dataH1, 'v', "#ff9800", 1, getYRatio);       // H1 強弱
-        plotLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]); // 10SMA (点線)
+        plotLine(dataH1, 'v', "#ff9800", 1, getYRatio);
+        plotLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]);
         
-        // --- 日足データの描画（右に1日分シフト） ---
-        const shiftD1 = dataD1.map(d => ({ ...d, t: d.t + 86400 })); 
-        plotLine(shiftD1, 'v', "#2962ff", 3, getYRatio);       // シフト済みD1 強弱
+        const shiftD1 = dataD1.map(d => ({ ...d, t: d.t + 86400 }));
+        plotLine(shiftD1, 'v', "#2962ff", 3, getYRatio);
         
-        // 価格ライン (H1優先、なければD1)
-        if (hasH1 && dataH1.some(d => d.p !== null)) {
-            plotLine(dataH1, 'p', "#ffffff", 1.5, getYPrice);
-        } else {
-            plotLine(dataD1, 'p', "#ffffff", 1.5, getYPrice);
-        }
-        // 時間軸の描画
-        ctx.textAlign = "center";
+        if (hasH1 && dataH1.some(d => d.p !== null)) plotLine(dataH1, 'p', "#ffffff", 1.5, getYPrice);
+        else plotLine(dataD1, 'p', "#ffffff", 1.5, getYPrice);
+
+        // 時間軸
+        ctx.textAlign = "center"; ctx.fillStyle = "#787b86";
         for (let t = Math.floor(vMin/86400)*86400; t <= vMax; t += 86400) {
-            const dt = new Date(t * 1000);
             const x = getX(t);
             if (x >= pad.left && x <= w - pad.right) {
+                const dt = new Date(t * 1000);
                 ctx.strokeStyle = "#363c4e";
                 ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
                 ctx.fillText((dt.getMonth()+1)+"/"+dt.getDate(), x, h - 10);
@@ -256,62 +302,51 @@
             const nearH = baseData.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, baseData[0]);
             const nearD = dataD1.find(d => Math.abs((d.t + 86400) - nearH.t) < 43200) || {v: 0, p: null};
             const nearS = dataSMA.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, {v: 0});
-            
             const x = getX(nearH.t);
             ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
             ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
             
-            const d = new Date(nearH.t * 1000);
-            const displayPrice = nearH.p || nearD.p || 0;
-            
             tooltip.style.display = "block";
             tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px";
             tooltip.style.top = "100px";
+            const d = new Date(nearH.t * 1000);
             tooltip.innerHTML = `
                 <div class="tt-date">${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:00</div>
-                <div class="tt-row"><span style="color:#fff">Price:</span><span>${displayPrice.toFixed(5)}</span></div>
+                <div class="tt-row"><span>Price:</span><span>${(nearH.p || nearD.p || 0).toFixed(5)}</span></div>
                 <div class="tt-row"><span style="color:var(--orange)">H1 Bias:</span><span>${nearH.v.toFixed(1)}%</span></div>
                 <div class="tt-row"><span style="color:var(--green)">10SMA:</span><span>${nearS.v.toFixed(1)}%</span></div>
-                <div class="tt-row"><span style="color:var(--blue)">Daily:</span><span>${nearD.v.toFixed(1)}%</span></div>`;
+                <div class="tt-row"><span style="color:var(--blue)">Daily (S):</span><span>${nearD.v.toFixed(1)}%</span></div>`;
         } else { tooltip.style.display = "none"; }
     }
 
-    function initIn(id, isH) {
+    function initIn(id, type) {
         document.getElementById(id).addEventListener('change', e => {
             const f = e.target.files[0]; if(!f) return;
-            writeLog(f.name + " 読込開始...");
+            writeLog(f.name + " 読込中...");
             const r = new FileReader();
             r.onload = ev => {
-                const res = parseCSV(ev.target.result);
-                if(isH) { 
-                    dataH1 = res; 
-                    dataSMA = getSMA(res, 10); // 10SMAに更新
-                } else { 
-                    dataD1 = res; 
-                }
-                writeLog(f.name + " 完了 (" + res.length + "件)");
+                if(type === 'pivot') dataPivot = parsePivotCSV(ev.target.result);
+                else if(type === 'h1') { dataH1 = parseCSV(ev.target.result); dataSMA = getSMA(dataH1, 10); }
+                else dataD1 = parseCSV(ev.target.result);
+                writeLog(f.name + " 完了");
                 draw();
             };
             r.readAsText(f);
         });
     }
 
-    initIn('d1In', false); initIn('h1In', true);
+    initIn('d1In', 'd1'); initIn('h1In', 'h1'); initIn('pivotIn', 'pivot');
     zoomSld.oninput = draw; scrollSld.oninput = draw;
     const handleMove = e => {
         const r = canvas.getBoundingClientRect();
         const cx = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
-        if(cx === -1) return;
-        mouseX = cx - r.left; draw();
+        if(cx === -1) return; mouseX = cx - r.left; draw();
     };
     container.addEventListener('mousemove', handleMove);
     container.addEventListener('touchstart', handleMove);
     container.addEventListener('touchmove', handleMove);
     container.addEventListener('mouseleave', () => { mouseX = -1; draw(); });
     window.onresize = draw; window.onload = draw;
-
 </script>
 </body>
 </html>
-
-
