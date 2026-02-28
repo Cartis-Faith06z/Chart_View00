@@ -270,12 +270,31 @@
             ctx.stroke(); ctx.setLineDash([]);
         }
 
-        // 下段: 強弱
+     // 下段: 1時間足 強弱
         plotLine(dataH1, 'v', "#ff9800", 1, getYRatio);
-        plotLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]);
-        const shiftD1 = dataD1.map(d => ({ ...d, t: d.t + 86400 }));
-        plotLine(shiftD1, 'v', "#2962ff", 3, getYRatio);
         
+        // 下段: 10SMA (1時間足ベース)
+        plotLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]);
+
+        // --- 下段: 日足 強弱（1日シフトして当日分まで描画） ---
+        // 最新のデータまで含めるため、マッピング後にソートを確認
+        const shiftD1 = dataD1.map(d => ({ ...d, t: d.t + 86400 }));
+        
+        // 日足は線が太いので、範囲の終点を少し広げて判定
+        const plotD1 = (dataset, color) => {
+            const pts = dataset.filter(d => d.t >= vMin && d.t <= vMax + 86400 && d.v !== null && !isNaN(d.v));
+            if (pts.length < 2) return;
+            ctx.strokeStyle = color; ctx.lineWidth = 3;
+            ctx.beginPath();
+            pts.forEach((pt, i) => {
+                const x = getX(pt.t);
+                const y = getYRatio(pt.v);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        };
+        plotD1(shiftD1, "#2962ff");
+              
         // 上段: 価格 (H1のデータのみを使用)
         plotLine(dataH1, 'p', "#ffffff", 1.5, getYPrice);
 
@@ -344,5 +363,6 @@
 </script>
 </body>
 </html>
+
 
 
