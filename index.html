@@ -3,23 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dual Dashboard</title>
+    <title>FX Interactive Dashboard</title>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; }
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; }
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --crosshair: #ffffff66; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; }
         
         header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; }
         .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 800px; margin: 0 auto; }
         .input-group { display: flex; flex-direction: column; background: #2a2e39; padding: 6px 10px; border-radius: 6px; border: 1px solid #444; }
         label { font-size: 11px; font-weight: bold; margin-bottom: 4px; color: var(--blue); }
-        input[type="file"] { font-size: 12px; color: #787b86; width: 100%; }
+        input[type="file"] { font-size: 11px; color: #787b86; width: 100%; }
         
-        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 12px; height: 35px; overflow: hidden; border-bottom: 1px solid #333; line-height: 1.4; }
+        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 12px; height: 30px; overflow: hidden; border-bottom: 1px solid #333; }
         
-        .chart-container { position: relative; width: 100vw; height: calc(100vh - 170px); background: var(--bg); }
-        canvas { width: 100%; height: 100%; touch-action: none; }
+        .chart-container { position: relative; width: 100vw; height: calc(100vh - 165px); background: var(--bg); cursor: crosshair; }
+        canvas { width: 100%; height: 100%; }
         
-        .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; padding: 8px; background: var(--panel); font-size: 10px; border-top: 1px solid #363c4e; }
+        /* ツールチップ（フローティング） */
+        #tooltip {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(30, 34, 45, 0.9);
+            border: 1px solid #485c7b;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .tt-date { color: #fff; font-weight: bold; margin-bottom: 4px; border-bottom: 1px solid #444; padding-bottom: 2px; }
+        .tt-row { display: flex; justify-content: space-between; gap: 15px; margin-top: 2px; }
+        
+        .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; padding: 5px; background: var(--panel); font-size: 10px; border-top: 1px solid #363c4e; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
         .line-box { width: 12px; height: 2px; }
     </style>
@@ -39,9 +57,10 @@
     </div>
 </header>
 
-<div id="log">【ログ】CSVを読み込んでください。上に価格、下に比率が表示されます。</div>
+<div id="log">【操作】CSVを読み込み、グラフをなぞって数値を確認してください。</div>
 
-<div class="chart-container">
+<div class="chart-container" id="container">
+    <div id="tooltip"></div>
     <canvas id="mainCanvas"></canvas>
 </div>
 
@@ -56,16 +75,14 @@
     const canvas = document.getElementById('mainCanvas');
     const ctx = canvas.getContext('2d');
     const logEl = document.getElementById('log');
+    const tooltip = document.getElementById('tooltip');
+    const container = document.getElementById('container');
 
-    let dailyData = [];
-    let hourlyData = [];
-    let smaData = [];
-    let rangeMinTs = 0;
-    let rangeMaxTs = 0;
+    let dailyData = [], hourlyData = [], smaData = [];
+    let rangeMinTs = 0, rangeMaxTs = 0;
+    let mouseX = -1;
 
-    function addLog(msg) {
-        logEl.innerHTML = `> ${msg}`;
-    }
+    const pad = { top: 20, right: 60, bottom: 30, left: 10, gap: 25 };
 
     function parseCSVDate(str) {
         try {
@@ -75,18 +92,17 @@
             const year = parseInt(datePart[0]);
             const month = parseInt(datePart[1]) - 1;
             const day = parseInt(datePart[2]);
-            let hour = 0, min = 0;
+            let h = 0, m = 0;
             if (parts.length > 1) {
-                const timePart = parts[1].split(':');
-                hour = parseInt(timePart[0]);
-                min = parseInt(timePart[1] || 0);
+                const t = parts[1].split(':');
+                h = parseInt(t[0]); m = parseInt(t[1] || 0);
             }
-            const dt = new Date(year, month, day, hour, min, 0);
+            const dt = new Date(year, month, day, h, m, 0);
             return isNaN(dt.getTime()) ? null : Math.floor(dt.getTime() / 1000);
         } catch(e) { return null; }
     }
 
-    function processCSV(text, label) {
+    function processCSV(text) {
         const lines = text.split(/\r?\n/).filter(line => line.includes(','));
         const result = [];
         for (let i = 1; i < lines.length; i++) {
@@ -95,11 +111,8 @@
             const ts = parseCSVDate(cols[0]);
             const ratio = parseFloat(cols[2]);
             const price = (cols.length >= 4 && cols[3].trim() !== "N/A") ? parseFloat(cols[3]) : null;
-            if (ts !== null && !isNaN(ratio)) {
-                result.push({ t: ts, v: ratio, p: price });
-            }
+            if (ts !== null && !isNaN(ratio)) result.push({ t: ts, v: ratio, p: price });
         }
-        addLog(`${label}: ${result.length}件読込完了`);
         return result.sort((a, b) => a.t - b.t);
     }
 
@@ -119,58 +132,48 @@
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
         ctx.scale(dpr, dpr);
-        const w = rect.width;
-        const h = rect.height;
+        const w = rect.width, h = rect.height;
 
         ctx.fillStyle = "#131722";
         ctx.fillRect(0, 0, w, h);
 
         if (hourlyData.length === 0 && dailyData.length === 0) return;
 
-        // 1. 時間範囲の決定
-        if (hourlyData.length > 0) {
-            rangeMinTs = hourlyData[0].t;
-            rangeMaxTs = hourlyData[hourlyData.length - 1].t;
-        } else {
-            rangeMinTs = dailyData[0].t;
-            rangeMaxTs = dailyData[dailyData.length - 1].t;
-        }
+        rangeMinTs = hourlyData.length > 0 ? hourlyData[0].t : dailyData[0].t;
+        rangeMaxTs = hourlyData.length > 0 ? hourlyData[hourlyData.length-1].t : dailyData[dailyData.length-1].t;
 
-        // 2. 領域分割
-        const splitY = h * 0.45; // 上45%を価格、下45%を比率、間に10%のマージン
-        const pad = { top: 20, right: 60, bottom: 30, left: 10, gap: 25 };
+        const splitY = h * 0.45;
+        const priceTop = pad.top, priceBottom = splitY;
+        const ratioTop = splitY + pad.gap, ratioBottom = h - pad.bottom;
+
+        // スケール計算
+        let vList = [], pList = [];
+        [hourlyData, dailyData, smaData].forEach(ds => ds.forEach(d => { if (d.t >= rangeMinTs && d.t <= rangeMaxTs) vList.push(d.v); }));
+        [hourlyData, dailyData].forEach(ds => ds.forEach(d => { if (d.t >= rangeMinTs && d.t <= rangeMaxTs && d.p !== null) pList.push(d.p); }));
         
-        const priceTop = pad.top;
-        const priceBottom = splitY;
-        const ratioTop = splitY + pad.gap;
-        const ratioBottom = h - pad.bottom;
-
-        // 3. スケール計算
-        // --- 比率スケール ---
-        let vList = [];
-        [hourlyData, dailyData, smaData].forEach(ds => {
-            ds.forEach(d => { if (d.t >= rangeMinTs && d.t <= rangeMaxTs) vList.push(d.v); });
-        });
-        const vMin = Math.min(...vList) - 3;
-        const vMax = Math.max(...vList) + 3;
-        const vRange = vMax - vMin || 1;
-
-        // --- 価格スケール ---
-        let pList = [];
-        [hourlyData, dailyData].forEach(ds => {
-            ds.forEach(d => { if (d.t >= rangeMinTs && d.t <= rangeMaxTs && d.p !== null) pList.push(d.p); });
-        });
-        const pMin = Math.min(...pList) * 0.999; // 上下0.1%の余裕
-        const pMax = Math.max(...pList) * 1.001;
-        const pRange = pMax - pMin || 0.001;
-
+        const vMin = Math.min(...vList) - 3, vMax = Math.max(...vList) + 3, vRange = vMax - vMin || 1;
+        const pMin = Math.min(...pList) * 0.999, pMax = Math.max(...pList) * 1.001, pRange = pMax - pMin || 0.001;
         const tRange = rangeMaxTs - rangeMinTs || 1;
+
         const getX = (t) => pad.left + (t - rangeMinTs) / tRange * (w - pad.left - pad.right);
         const getYRatio = (v) => ratioBottom - ((v - vMin) / vRange) * (ratioBottom - ratioTop);
         const getYPrice = (p) => priceBottom - ((p - pMin) / pRange) * (priceBottom - priceTop);
 
-        // --- 描画補助関数 ---
-        function plot(data, field, color, width, yFunc, dash = []) {
+        // グリッド
+        ctx.lineWidth = 1; ctx.font = "9px sans-serif"; ctx.textAlign = "right";
+        ctx.strokeStyle = "#2b2b43"; ctx.fillStyle = "#787b86";
+        for (let i = 0; i <= 4; i++) {
+            const vy = getYRatio(vMin + (vRange * i / 4));
+            ctx.beginPath(); ctx.moveTo(pad.left, vy); ctx.lineTo(w - pad.right, vy); ctx.stroke();
+            ctx.fillText((vMin + (vRange * i / 4)).toFixed(1) + "%", w - 5, vy + 3);
+            
+            const py = getYPrice(pMin + (pRange * i / 4));
+            ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(w - pad.right, py); ctx.stroke();
+            ctx.fillText((pMin + (pRange * i / 4)).toFixed(5), w - 5, py + 3);
+        }
+
+        // プロット
+        function plotLine(data, field, color, width, yFunc, dash = []) {
             const pts = data.filter(d => d.t >= rangeMinTs && d.t <= rangeMaxTs && d[field] !== null);
             if (pts.length < 2) return;
             ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
@@ -182,65 +185,79 @@
             ctx.stroke(); ctx.setLineDash([]);
         }
 
-        // 4. グリッドと目盛り
-        ctx.lineWidth = 1; ctx.font = "9px sans-serif"; ctx.textAlign = "right";
+        plotLine(hourlyData, 'v', "#ff9800", 1, getYRatio);
+        plotLine(smaData, 'v', "#4caf50", 1, getYRatio, [4, 4]);
+        plotLine(dailyData, 'v', "#2962ff", 3, getYRatio);
+        plotLine(hourlyData, 'p', "#ffffff", 1.5, getYPrice);
+        plotLine(dailyData, 'p', "#2962ff", 1, getYPrice, [2, 2]);
 
-        // 比率目盛り (下窓)
-        ctx.strokeStyle = "#2b2b43"; ctx.fillStyle = "#787b86";
-        for (let i = 0; i <= 4; i++) {
-            const val = vMin + (vRange * i / 4);
-            const y = getYRatio(val);
-            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
-            ctx.fillText(val.toFixed(1) + "%", w - 5, y + 3);
+        // インタラクション (垂直線とツールチップ)
+        if (mouseX > pad.left && mouseX < w - pad.right) {
+            const hoverTs = rangeMinTs + ((mouseX - pad.left) / (w - pad.left - pad.right)) * tRange;
+            
+            // 最も近い1時間足データを探す
+            const nearestH = hourlyData.reduce((prev, curr) => 
+                Math.abs(curr.t - hoverTs) < Math.abs(prev.t - hoverTs) ? curr : prev
+            );
+            
+            // 最も近い日足データを探す
+            const dayTs = Math.floor(nearestH.t / 86400) * 86400;
+            const nearestD = dailyData.find(d => Math.floor(d.t / 86400) * 86400 === dayTs) || {v: 0, p: 0};
+            
+            // SMA
+            const nearestSMA = smaData.reduce((prev, curr) => 
+                Math.abs(curr.t - hoverTs) < Math.abs(prev.t - hoverTs) ? curr : prev
+            , {v: 0});
+
+            const x = getX(nearestH.t);
+            
+            // 垂直線
+            ctx.strokeStyle = "rgba(255,255,255,0.4)";
+            ctx.lineWidth = 1; ctx.setLineDash([5, 5]);
+            ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, h - pad.bottom); ctx.stroke();
+            ctx.setLineDash([]);
+
+            // ツールチップの更新
+            const d = new Date(nearestH.t * 1000);
+            const dateStr = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:00`;
+            
+            tooltip.style.display = "block";
+            tooltip.style.left = (x > w - 150 ? x - 140 : x + 10) + "px";
+            tooltip.style.top = "50px";
+            tooltip.innerHTML = `
+                <div class="tt-date">${dateStr}</div>
+                <div class="tt-row"><span style="color:#fff">Price:</span><span>${(nearestH.p || 0).toFixed(5)}</span></div>
+                <div class="tt-row"><span style="color:var(--blue)">Daily:</span><span>${nearestD.v.toFixed(1)}%</span></div>
+                <div class="tt-row"><span style="color:var(--orange)">Hourly:</span><span>${nearestH.v.toFixed(1)}%</span></div>
+                <div class="tt-row"><span style="color:var(--green)">5SMA:</span><span>${nearestSMA.v.toFixed(1)}%</span></div>
+            `;
+        } else {
+            tooltip.style.display = "none";
         }
-
-        // 価格目盛り (上窓)
-        for (let i = 0; i <= 4; i++) {
-            const val = pMin + (pRange * i / 4);
-            const y = getYPrice(val);
-            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
-            ctx.fillText(val.toFixed(5), w - 5, y + 3);
-        }
-
-        // 時間ラベル
-        ctx.textAlign = "center";
-        for (let t = rangeMinTs; t <= rangeMaxTs; t += 3600) {
-            const dt = new Date(t * 1000);
-            if (dt.getHours() === 0) {
-                const x = getX(t);
-                if (x >= pad.left && x <= w - pad.right) {
-                    ctx.strokeStyle = "#2b2b43";
-                    ctx.beginPath(); ctx.moveTo(x, priceTop); ctx.lineTo(x, ratioBottom); ctx.stroke();
-                    ctx.fillStyle = "#787b86";
-                    ctx.fillText((dt.getMonth() + 1) + "/" + dt.getDate(), x, h - 10);
-                }
-            }
-        }
-
-        // 5. データプロット
-        // 下窓 (比率)
-        plot(hourlyData, 'v', "#ff9800", 1, getYRatio);
-        plot(smaData, 'v', "#4caf50", 1, getYRatio, [4, 4]);
-        plot(dailyData, 'v', "#2962ff", 3, getYRatio);
-
-        // 上窓 (価格)
-        plot(hourlyData, 'p', "#ffffff", 1.5, getYPrice);
-        plot(dailyData, 'p', "#2962ff", 1, getYPrice, [2, 2]);
-
-        addLog("描画完了 (上:価格 / 下:比率)");
     }
+
+    // イベントリスナー
+    function handleMove(e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
+        mouseX = x;
+        draw();
+    }
+
+    container.addEventListener('mousemove', handleMove);
+    container.addEventListener('touchstart', handleMove);
+    container.addEventListener('touchmove', handleMove);
+    container.addEventListener('mouseleave', () => { mouseX = -1; draw(); });
 
     document.getElementById('d1Input').onchange = e => {
         const f = e.target.files[0]; if (!f) return;
-        const r = new FileReader();
-        r.onload = () => { dailyData = processCSV(r.result, "日足"); draw(); };
+        const r = new FileReader(); r.onload = () => { dailyData = processCSV(r.result); draw(); };
         r.readAsText(f);
     };
     document.getElementById('h1Input').onchange = e => {
         const f = e.target.files[0]; if (!f) return;
-        const r = new FileReader();
-        r.onload = () => {
-            hourlyData = processCSV(r.result, "1時間足");
+        const r = new FileReader(); r.onload = () => {
+            hourlyData = processCSV(r.result);
             smaData = calcSMA(hourlyData, 5);
             draw();
         };
