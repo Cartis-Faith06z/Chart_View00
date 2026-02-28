@@ -3,25 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Bias Dashboard Pro</title>
+    <title>FX Dual Dashboard</title>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --grid: #2b2b43; }
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; }
         
-        header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+        header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; }
         .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 800px; margin: 0 auto; }
         .input-group { display: flex; flex-direction: column; background: #2a2e39; padding: 6px 10px; border-radius: 6px; border: 1px solid #444; }
         label { font-size: 11px; font-weight: bold; margin-bottom: 4px; color: var(--blue); }
         input[type="file"] { font-size: 12px; color: #787b86; width: 100%; }
         
-        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 12px; height: 50px; overflow-y: auto; border-bottom: 1px solid #333; line-height: 1.4; }
+        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 12px; height: 35px; overflow: hidden; border-bottom: 1px solid #333; line-height: 1.4; }
         
-        .chart-container { position: relative; width: 100vw; height: calc(100vh - 180px); background: var(--bg); }
+        .chart-container { position: relative; width: 100vw; height: calc(100vh - 170px); background: var(--bg); }
         canvas { width: 100%; height: 100%; touch-action: none; }
         
-        .legend { display: flex; justify-content: center; gap: 15px; padding: 8px; background: var(--panel); font-size: 11px; border-top: 1px solid #363c4e; }
+        .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; padding: 8px; background: var(--panel); font-size: 10px; border-top: 1px solid #363c4e; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
-        .line-box { width: 16px; height: 3px; border-radius: 1px; }
+        .line-box { width: 12px; height: 2px; }
     </style>
 </head>
 <body>
@@ -39,15 +39,16 @@
     </div>
 </header>
 
-<div id="log">【システムログ】CSVファイルを選択してください...</div>
+<div id="log">【ログ】CSVを読み込んでください。上に価格、下に比率が表示されます。</div>
 
 <div class="chart-container">
     <canvas id="mainCanvas"></canvas>
 </div>
 
 <div class="legend">
-    <div class="legend-item"><div class="line-box" style="background:var(--blue)"></div>日足</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>1時間</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--price)"></div>価格(1H)</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>日足比率</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>1H比率</div>
     <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>5SMA</div>
 </div>
 
@@ -59,13 +60,11 @@
     let dailyData = [];
     let hourlyData = [];
     let smaData = [];
-    let rangeMin = 0;
-    let rangeMax = 0;
+    let rangeMinTs = 0;
+    let rangeMaxTs = 0;
 
     function addLog(msg) {
-        const now = new Date();
-        const time = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0') + ":" + now.getSeconds().toString().padStart(2, '0');
-        logEl.innerHTML = `[${time}] ${msg}<br>` + logEl.innerHTML;
+        logEl.innerHTML = `> ${msg}`;
     }
 
     function parseCSVDate(str) {
@@ -76,20 +75,15 @@
             const year = parseInt(datePart[0]);
             const month = parseInt(datePart[1]) - 1;
             const day = parseInt(datePart[2]);
-            
             let hour = 0, min = 0;
             if (parts.length > 1) {
                 const timePart = parts[1].split(':');
                 hour = parseInt(timePart[0]);
                 min = parseInt(timePart[1] || 0);
             }
-            
             const dt = new Date(year, month, day, hour, min, 0);
-            const ts = Math.floor(dt.getTime() / 1000);
-            return isNaN(ts) ? null : ts;
-        } catch(e) {
-            return null;
-        }
+            return isNaN(dt.getTime()) ? null : Math.floor(dt.getTime() / 1000);
+        } catch(e) { return null; }
     }
 
     function processCSV(text, label) {
@@ -99,14 +93,14 @@
             const cols = lines[i].split(',');
             if (cols.length < 3) continue;
             const ts = parseCSVDate(cols[0]);
-            const val = parseFloat(cols[2]);
-            if (ts !== null && !isNaN(val)) {
-                result.push({ t: ts, v: val });
+            const ratio = parseFloat(cols[2]);
+            const price = (cols.length >= 4 && cols[3].trim() !== "N/A") ? parseFloat(cols[3]) : null;
+            if (ts !== null && !isNaN(ratio)) {
+                result.push({ t: ts, v: ratio, p: price });
             }
         }
-        const sorted = result.sort((a, b) => a.t - b.t);
-        addLog(`${label}: ${sorted.length}件読込完了`);
-        return sorted;
+        addLog(`${label}: ${result.length}件読込完了`);
+        return result.sort((a, b) => a.t - b.t);
     }
 
     function calcSMA(data, n) {
@@ -125,124 +119,132 @@
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
         ctx.scale(dpr, dpr);
-        
         const w = rect.width;
         const h = rect.height;
-        const pad = { top: 30, right: 55, bottom: 40, left: 10 };
 
         ctx.fillStyle = "#131722";
         ctx.fillRect(0, 0, w, h);
 
+        if (hourlyData.length === 0 && dailyData.length === 0) return;
+
         // 1. 時間範囲の決定
         if (hourlyData.length > 0) {
-            rangeMin = hourlyData[0].t;
-            rangeMax = hourlyData[hourlyData.length - 1].t;
-        } else if (dailyData.length > 0) {
-            rangeMin = dailyData[0].t;
-            rangeMax = dailyData[dailyData.length - 1].t;
+            rangeMinTs = hourlyData[0].t;
+            rangeMaxTs = hourlyData[hourlyData.length - 1].t;
         } else {
-            return;
+            rangeMinTs = dailyData[0].t;
+            rangeMaxTs = dailyData[dailyData.length - 1].t;
         }
 
-        // 2. Y軸のスケール決定 (MAX/MIN ± 3%)
-        let allVisibleValues = [];
-        [hourlyData, dailyData, smaData].forEach(dataset => {
-            dataset.forEach(d => {
-                if (d.t >= rangeMin && d.t <= rangeMax) allVisibleValues.push(d.v);
-            });
+        // 2. 領域分割
+        const splitY = h * 0.45; // 上45%を価格、下45%を比率、間に10%のマージン
+        const pad = { top: 20, right: 60, bottom: 30, left: 10, gap: 25 };
+        
+        const priceTop = pad.top;
+        const priceBottom = splitY;
+        const ratioTop = splitY + pad.gap;
+        const ratioBottom = h - pad.bottom;
+
+        // 3. スケール計算
+        // --- 比率スケール ---
+        let vList = [];
+        [hourlyData, dailyData, smaData].forEach(ds => {
+            ds.forEach(d => { if (d.t >= rangeMinTs && d.t <= rangeMaxTs) vList.push(d.v); });
         });
+        const vMin = Math.min(...vList) - 3;
+        const vMax = Math.max(...vList) + 3;
+        const vRange = vMax - vMin || 1;
 
-        if (allVisibleValues.length === 0) return;
+        // --- 価格スケール ---
+        let pList = [];
+        [hourlyData, dailyData].forEach(ds => {
+            ds.forEach(d => { if (d.t >= rangeMinTs && d.t <= rangeMaxTs && d.p !== null) pList.push(d.p); });
+        });
+        const pMin = Math.min(...pList) * 0.999; // 上下0.1%の余裕
+        const pMax = Math.max(...pList) * 1.001;
+        const pRange = pMax - pMin || 0.001;
 
-        const dataMin = Math.min(...allVisibleValues);
-        const dataMax = Math.max(...allVisibleValues);
-        const yLimitMin = dataMin - 3; // 下限 -3%
-        const yLimitMax = dataMax + 3; // 上限 +3%
-        const yRange = yLimitMax - yLimitMin || 1;
+        const tRange = rangeMaxTs - rangeMinTs || 1;
+        const getX = (t) => pad.left + (t - rangeMinTs) / tRange * (w - pad.left - pad.right);
+        const getYRatio = (v) => ratioBottom - ((v - vMin) / vRange) * (ratioBottom - ratioTop);
+        const getYPrice = (p) => priceBottom - ((p - pMin) / pRange) * (priceBottom - priceTop);
 
-        const tRange = rangeMax - rangeMin || 1;
-        const getX = (t) => pad.left + (t - rangeMin) / tRange * (w - pad.left - pad.right);
-        const getY = (v) => pad.top + (1 - (v - yLimitMin) / yRange) * (h - pad.top - pad.bottom);
-
-        // グリッドと％目盛り (5ステップで描画)
-        ctx.strokeStyle = "#2b2b43";
-        ctx.lineWidth = 1;
-        ctx.font = "10px sans-serif";
-        ctx.textAlign = "right";
-        ctx.textBaseline = "middle";
-
-        for (let i = 0; i <= 5; i++) {
-            const val = yLimitMin + (yRange * i / 5);
-            const y = getY(val);
+        // --- 描画補助関数 ---
+        function plot(data, field, color, width, yFunc, dash = []) {
+            const pts = data.filter(d => d.t >= rangeMinTs && d.t <= rangeMaxTs && d[field] !== null);
+            if (pts.length < 2) return;
+            ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
             ctx.beginPath();
-            ctx.moveTo(pad.left, y);
-            ctx.lineTo(w - pad.right, y);
-            ctx.stroke();
-            
-            ctx.fillStyle = "#787b86";
-            ctx.fillText(val.toFixed(1) + "%", w - 5, y);
+            pts.forEach((pt, i) => {
+                const x = getX(pt.t); const y = yFunc(pt[field]);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke(); ctx.setLineDash([]);
         }
 
-        // 日付ラベル
+        // 4. グリッドと目盛り
+        ctx.lineWidth = 1; ctx.font = "9px sans-serif"; ctx.textAlign = "right";
+
+        // 比率目盛り (下窓)
+        ctx.strokeStyle = "#2b2b43"; ctx.fillStyle = "#787b86";
+        for (let i = 0; i <= 4; i++) {
+            const val = vMin + (vRange * i / 4);
+            const y = getYRatio(val);
+            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+            ctx.fillText(val.toFixed(1) + "%", w - 5, y + 3);
+        }
+
+        // 価格目盛り (上窓)
+        for (let i = 0; i <= 4; i++) {
+            const val = pMin + (pRange * i / 4);
+            const y = getYPrice(val);
+            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+            ctx.fillText(val.toFixed(5), w - 5, y + 3);
+        }
+
+        // 時間ラベル
         ctx.textAlign = "center";
-        let lastLabelX = -100;
-        for (let t = rangeMin; t <= rangeMax; t += 3600) {
+        for (let t = rangeMinTs; t <= rangeMaxTs; t += 3600) {
             const dt = new Date(t * 1000);
             if (dt.getHours() === 0) {
                 const x = getX(t);
                 if (x >= pad.left && x <= w - pad.right) {
-                    ctx.strokeStyle = "#1e222d";
-                    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, h - pad.bottom); ctx.stroke();
-                    if (x - lastLabelX > 60) {
-                        ctx.fillStyle = "#787b86";
-                        ctx.fillText((dt.getMonth() + 1) + "/" + dt.getDate(), x, h - 15);
-                        lastLabelX = x;
-                    }
+                    ctx.strokeStyle = "#2b2b43";
+                    ctx.beginPath(); ctx.moveTo(x, priceTop); ctx.lineTo(x, ratioBottom); ctx.stroke();
+                    ctx.fillStyle = "#787b86";
+                    ctx.fillText((dt.getMonth() + 1) + "/" + dt.getDate(), x, h - 10);
                 }
             }
         }
 
-        function plotLine(data, color, width, dash = []) {
-            const pts = data.filter(d => d.t >= rangeMin && d.t <= rangeMax);
-            if (pts.length < 2) return;
-            ctx.strokeStyle = color;
-            ctx.lineWidth = width;
-            ctx.setLineDash(dash);
-            ctx.beginPath();
-            pts.forEach((pt, i) => {
-                const x = getX(pt.t);
-                const y = getY(pt.v);
-                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            });
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
+        // 5. データプロット
+        // 下窓 (比率)
+        plot(hourlyData, 'v', "#ff9800", 1, getYRatio);
+        plot(smaData, 'v', "#4caf50", 1, getYRatio, [4, 4]);
+        plot(dailyData, 'v', "#2962ff", 3, getYRatio);
 
-        plotLine(hourlyData, "#ff9800", 1.2);
-        plotLine(smaData, "#4caf50", 1, [4, 4]);
-        plotLine(dailyData, "#2962ff", 3);
-        
-        addLog(`表示範囲: ${yLimitMin.toFixed(1)}% 〜 ${yLimitMax.toFixed(1)}%`);
+        // 上窓 (価格)
+        plot(hourlyData, 'p', "#ffffff", 1.5, getYPrice);
+        plot(dailyData, 'p', "#2962ff", 1, getYPrice, [2, 2]);
+
+        addLog("描画完了 (上:価格 / 下:比率)");
     }
 
     document.getElementById('d1Input').onchange = e => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => { dailyData = processCSV(reader.result, "日足"); draw(); };
-        reader.readAsText(file);
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = () => { dailyData = processCSV(r.result, "日足"); draw(); };
+        r.readAsText(f);
     };
-
     document.getElementById('h1Input').onchange = e => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            hourlyData = processCSV(reader.result, "1時間足");
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = () => {
+            hourlyData = processCSV(r.result, "1時間足");
             smaData = calcSMA(hourlyData, 5);
             draw();
         };
-        reader.readAsText(file);
+        r.readAsText(f);
     };
 
     window.onresize = draw;
