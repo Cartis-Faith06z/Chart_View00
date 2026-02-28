@@ -103,6 +103,7 @@
     function writeLog(m) { logEl.innerText = "> " + m; }
 
     function parseCSVDate(s) {
+        if (!s) return null;
         try {
             const clean = s.trim().replace(/-/g, '/');
             const parts = clean.split(' ');
@@ -120,11 +121,18 @@
         for (let i = 1; i < lines.length; i++) {
             const c = lines[i].split(',');
             if (c.length < 3) continue;
+            
             const t = parseCSVDate(c[0]);
-            const v = parseFloat(c[2]);
-            const pRaw = c[3] ? c[3].trim() : "";
-            const p = (pRaw !== "" && !isNaN(parseFloat(pRaw))) ? parseFloat(pRaw) : null;
-            if (t !== null && !isNaN(v)) res.push({ t, v, p });
+            if (t === null) continue;
+
+            // 数値変換（N/Aや空白はNaNになる）
+            const vRaw = parseFloat(c[2]);
+            const pRaw = c[3] ? parseFloat(c[3]) : NaN;
+
+            // 少なくとも強弱値(v)が有効な数値である場合のみリストに追加
+            if (!isNaN(vRaw)) {
+                res.push({ t, v: vRaw, p: isNaN(pRaw) ? null : pRaw });
+            }
         }
         return res.sort((a, b) => a.t - b.t);
     }
@@ -132,7 +140,6 @@
     function parsePivotCSV(text) {
         const lines = text.split(/\r?\n/).filter(l => l.includes(','));
         const res = [];
-        // Header index: Date(1), R5(2), R4(3), R3(4), R2(5), R1(6), PP(7), S1(8), S2(9), S3(10), S4(11), S5(12)
         for (let i = 1; i < lines.length; i++) {
             const c = lines[i].split(',');
             if (c.length < 13) continue;
@@ -190,27 +197,22 @@
         const pTop = pad.top, pBot = splitY;
         const rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
-      // 表示範囲内のデータを集計してスケールを決定
         let vList = [], pList = [];
-        
-        // 強弱値(v)は全データから取得
         [dataH1, dataD1, dataSMA].forEach(ds => ds.forEach(d => {
             if(d.t >= vMin && d.t <= vMax) {
-                if(d.v !== undefined && d.v !== null) vList.push(d.v);
+                if(d.v !== undefined && d.v !== null && !isNaN(d.v)) vList.push(d.v);
             }
         }));
 
-        // 価格(p)はH1またはD1の実際の価格データのみから取得（Pivotは含めない）
-        [dataH1, dataD1].forEach(ds => ds.forEach(d => {
+        // 価格(p)はH1のデータのみから取得（D1の価格は無視）
+        dataH1.forEach(d => {
             if(d.t >= vMin && d.t <= vMax) {
-                if(d.p !== undefined && d.p !== null) pList.push(d.p);
+                if(d.p !== undefined && d.p !== null && !isNaN(d.p)) pList.push(d.p);
             }
-        }));
+        });
 
         if(vList.length === 0) return;
         const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
-        
-        // 価格スケール：Pivotを含まず、実際の価格の上下0.05%程度のマージンで固定
         const pLo = pList.length > 0 ? Math.min(...pList) * 0.9995 : 0;
         const pHi = pList.length > 0 ? Math.max(...pList) * 1.0005 : 1;
         const pR = pHi - pLo || 0.001;
@@ -233,42 +235,31 @@
             }
         }
 
-        // Pivotの描画 (価格チャートに水平線を表示)
+        // Pivot描画
         dataPivot.forEach(d => {
-            const tStart = d.t;
-            const tEnd = d.t + 86400;
+            const tStart = d.t; const tEnd = d.t + 86400;
             if (tEnd < vMin || tStart > vMax) return;
-            
             const x1 = Math.max(getX(tStart), pad.left);
             const x2 = Math.min(getX(tEnd), w - pad.right);
             if (x2 <= x1) return;
-
             Object.entries(d.levels).forEach(([key, val]) => {
                 if (isNaN(val)) return;
+                const y = getYPrice(val);
+                if (y < pTop || y > pBot) return; // 画面外は描画しない
                 let color = "#444";
                 if (key.startsWith('R')) color = "rgba(244, 67, 54, 0.4)";
                 else if (key.startsWith('S')) color = "rgba(33, 150, 243, 0.4)";
                 else if (key === 'PP') color = "rgba(255, 235, 59, 0.5)";
-
-                ctx.strokeStyle = color;
-                ctx.lineWidth = key === 'PP' ? 1.5 : 1;
-                ctx.beginPath();
-                ctx.moveTo(x1, getYPrice(val));
-                ctx.lineTo(x2, getYPrice(val));
-                ctx.stroke();
-                
-                // 右端にラベル
-                if (x2 > w - pad.right - 10) {
-                    ctx.fillStyle = color;
-                    ctx.textAlign = "left";
-                    ctx.fillText(key, x2 + 2, getYPrice(val) + 3);
-                }
+                ctx.strokeStyle = color; ctx.lineWidth = key === 'PP' ? 1.5 : 1;
+                ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+                if (x2 > w - pad.right - 10) { ctx.fillStyle = color; ctx.textAlign = "left"; ctx.fillText(key, x2 + 2, y + 3); }
             });
         });
 
         // 描画
         function plotLine(dataset, field, color, width, yFunc, dash = []) {
-            const pts = dataset.filter(d => d.t >= vMin && d.t <= vMax && d[field] !== null);
+            // 有効な数値(null/NaNでない)を持つデータのみを抽出
+            const pts = dataset.filter(d => d.t >= vMin && d.t <= vMax && d[field] !== null && !isNaN(d[field]));
             if (pts.length < 2) return;
             ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
             ctx.beginPath();
@@ -279,14 +270,14 @@
             ctx.stroke(); ctx.setLineDash([]);
         }
 
+        // 下段: 強弱
         plotLine(dataH1, 'v', "#ff9800", 1, getYRatio);
         plotLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]);
-        
         const shiftD1 = dataD1.map(d => ({ ...d, t: d.t + 86400 }));
         plotLine(shiftD1, 'v', "#2962ff", 3, getYRatio);
         
-        if (hasH1 && dataH1.some(d => d.p !== null)) plotLine(dataH1, 'p', "#ffffff", 1.5, getYPrice);
-        else plotLine(dataD1, 'p', "#ffffff", 1.5, getYPrice);
+        // 上段: 価格 (H1のデータのみを使用)
+        plotLine(dataH1, 'p', "#ffffff", 1.5, getYPrice);
 
         // 時間軸
         ctx.textAlign = "center"; ctx.fillStyle = "#787b86";
@@ -303,20 +294,19 @@
         // ツールチップ
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const hTs = vMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (vMax - vMin);
-            const nearH = baseData.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, baseData[0]);
-            const nearD = dataD1.find(d => Math.abs((d.t + 86400) - nearH.t) < 43200) || {v: 0, p: null};
+            const nearH = dataH1.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, dataH1[0] || {t:0, v:0, p:0});
+            const nearD = dataD1.find(d => Math.abs((d.t + 86400) - nearH.t) < 43200) || {v: 0};
             const nearS = dataSMA.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, {v: 0});
             const x = getX(nearH.t);
             ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
             ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
             
             tooltip.style.display = "block";
-            tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px";
-            tooltip.style.top = "100px";
+            tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
             const d = new Date(nearH.t * 1000);
             tooltip.innerHTML = `
                 <div class="tt-date">${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:00</div>
-                <div class="tt-row"><span>Price:</span><span>${(nearH.p || nearD.p || 0).toFixed(5)}</span></div>
+                <div class="tt-row"><span>Price:</span><span>${(nearH.p || 0).toFixed(5)}</span></div>
                 <div class="tt-row"><span style="color:var(--orange)">H1 Bias:</span><span>${nearH.v.toFixed(1)}%</span></div>
                 <div class="tt-row"><span style="color:var(--green)">10SMA:</span><span>${nearS.v.toFixed(1)}%</span></div>
                 <div class="tt-row"><span style="color:var(--blue)">Daily (S):</span><span>${nearD.v.toFixed(1)}%</span></div>`;
@@ -354,4 +344,5 @@
 </script>
 </body>
 </html>
+
 
