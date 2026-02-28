@@ -1,224 +1,258 @@
 <!DOCTYPE html>
-
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FX Bias Visualizer Pro</title>
-<style>
-:root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --grid: #2b2b43; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; overflow: hidden; }
-
-    header { padding: 12px; background: var(--panel); border-bottom: 1px solid #363c4e; }
-    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; max-width: 900px; margin: 0 auto; }
-    .input-group { display: flex; flex-direction: column; background: #2a2e39; padding: 10px; border-radius: 8px; border: 1px solid #444; }
-    label { font-size: 12px; font-weight: bold; margin-bottom: 6px; color: var(--blue); }
-    input[type="file"] { font-size: 13px; color: #787b86; cursor: pointer; }
-    
-    #log { background: #000; color: #0f0; font-family: monospace; font-size: 11px; padding: 6px 15px; height: 30px; overflow: hidden; border-bottom: 1px solid #333; }
-    
-    .chart-container { position: relative; width: 100vw; height: calc(100vh - 180px); }
-    canvas { width: 100%; height: 100%; touch-action: none; }
-    
-    .legend { display: flex; justify-content: center; gap: 20px; padding: 10px; background: var(--panel); font-size: 12px; border-top: 1px solid #363c4e; }
-    .legend-item { display: flex; align-items: center; gap: 6px; }
-    .line-sample { width: 20px; height: 3px; border-radius: 2px; }
-</style>
-
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FX Bias Dashboard</title>
+    <style>
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --grid: #2b2b43; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; }
+        
+        header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 800px; margin: 0 auto; }
+        .input-group { display: flex; flex-direction: column; background: #2a2e39; padding: 6px 10px; border-radius: 6px; border: 1px solid #444; }
+        label { font-size: 11px; font-weight: bold; margin-bottom: 4px; color: var(--blue); }
+        input[type="file"] { font-size: 12px; color: #787b86; width: 100%; }
+        
+        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 12px; height: 50px; overflow-y: auto; border-bottom: 1px solid #333; line-height: 1.4; }
+        
+        .chart-container { position: relative; width: 100vw; height: calc(100vh - 180px); background: var(--bg); }
+        canvas { width: 100%; height: 100%; touch-action: none; }
+        
+        .legend { display: flex; justify-content: center; gap: 15px; padding: 8px; background: var(--panel); font-size: 11px; border-top: 1px solid #363c4e; }
+        .legend-item { display: flex; align-items: center; gap: 4px; }
+        .line-box { width: 16px; height: 3px; border-radius: 1px; }
+    </style>
 </head>
 <body>
 
 <header>
-<div class="controls">
-<div class="input-group">
-<label>1. 日足 (D1) CSVを選択</label>
-<input type="file" id="fileD1" accept=".csv">
-</div>
-<div class="input-group">
-<label>2. 1時間足 (H1) CSVを選択</label>
-<input type="file" id="fileH1" accept=".csv">
-</div>
-</div>
+    <div class="controls">
+        <div class="input-group">
+            <label>1. 日足 (D1) CSV</label>
+            <input type="file" id="d1Input" accept=".csv">
+        </div>
+        <div class="input-group">
+            <label>2. 1時間足 (H1) CSV</label>
+            <input type="file" id="h1Input" accept=".csv">
+        </div>
+    </div>
 </header>
 
-<div id="log">ログ: 1時間足CSVを優先して読み込んでください...</div>
+<div id="log">【システムログ】CSVファイルを選択してください...</div>
 
 <div class="chart-container">
-<canvas id="chartCanvas"></canvas>
+    <canvas id="mainCanvas"></canvas>
 </div>
 
 <div class="legend">
-<div class="legend-item"><div class="line-sample" style="background:var(--blue)"></div>日足</div>
-<div class="legend-item"><div class="line-sample" style="background:var(--orange)"></div>1時間</div>
-<div class="legend-item"><div class="line-sample" style="background:var(--green); border-top:1px dashed white"></div>5SMA (1H)</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--blue)"></div>日足</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>1時間</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>5SMA</div>
 </div>
 
 <script>
-const canvas = document.getElementById('chartCanvas');
-const ctx = canvas.getContext('2d');
-const logEl = document.getElementById('log');
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const logEl = document.getElementById('log');
 
-let dataD1 = [], dataH1 = [], dataSMA = [];
-let viewMinTime = 0, viewMaxTime = 0;
+    let dailyData = [];
+    let hourlyData = [];
+    let smaData = [];
+    let rangeMin = 0;
+    let rangeMax = 0;
 
-function writeLog(m) {
-    logEl.innerText = &quot;ログ: &quot; + m;
-}
-
-// どんな日付形式でもUnix秒に変換
-function parseDate(s) {
-    const str = s.trim().replace(/-/g, &#39;/&#39;);
-    const dt = new Date(str.includes(&#39; &#39;) ? str : str + &quot; 00:00:00&quot;);
-    return Math.floor(dt.getTime() / 1000);
-}
-
-function parseCSV(text) {
-    const rows = text.split(/\r?\n/).filter(r =&gt; r.includes(&#39;,&#39;));
-    const result = [];
-    for (let i = 1; i &lt; rows.length; i++) {
-        const cols = rows[i].split(&#39;,&#39;);
-        if (cols.length &lt; 3) continue;
-        const t = parseDate(cols[0]);
-        const v = parseFloat(cols[2]);
-        if (!isNaN(t) &amp;&amp; !isNaN(v)) {
-            result.push({ t, v });
-        }
-    }
-    return result.sort((a, b) =&gt; a.t - b.t);
-}
-
-function calculateSMA(data, period) {
-    const res = [];
-    for (let i = period - 1; i &lt; data.length; i++) {
-        let sum = 0;
-        for (let j = 0; j &lt; period; j++) sum += data[i - j].v;
-        res.push({ t: data[i].t, v: sum / period });
-    }
-    return res;
-}
-
-function draw() {
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = canvas.offsetWidth * dpr;
-    canvas.height = canvas.offsetHeight * dpr;
-    ctx.scale(dpr, dpr);
-    
-    const w = canvas.offsetWidth;
-    const h = canvas.offsetHeight;
-    const pad = { top: 30, right: 60, bottom: 40, left: 10 };
-
-    ctx.clearRect(0, 0, w, h);
-
-    // 1時間足があれば、その期間にズーム。なければ日足。
-    if (dataH1.length &gt; 0) {
-        viewMinTime = dataH1[0].t;
-        viewMaxTime = dataH1[dataH1.length - 1].t;
-    } else if (dataD1.length &gt; 0) {
-        viewMinTime = dataD1[0].t;
-        viewMaxTime = dataD1[dataD1.length - 1].t;
-    } else {
-        return;
+    function addLog(msg) {
+        const now = new Date();
+        const time = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0') + ":" + now.getSeconds().toString().padStart(2, '0');
+        logEl.innerHTML = `[${time}] ${msg}<br>` + logEl.innerHTML;
     }
 
-    const timeRange = viewMaxTime - viewMinTime || 1;
-    const xMap = (t) =&gt; pad.left + (t - viewMinTime) / timeRange * (w - pad.left - pad.right);
-    const yMap = (v) =&gt; pad.top + (1 - v / 100) * (h - pad.top - pad.bottom);
-
-    // グリッド線（横軸：％）
-    ctx.strokeStyle = &quot;#2b2b43&quot;;
-    ctx.lineWidth = 1;
-    ctx.textAlign = &quot;right&quot;;
-    ctx.textBaseline = &quot;middle&quot;;
-    for (let i = 0; i &lt;= 10; i++) {
-        const val = i * 10;
-        const y = yMap(val);
-        ctx.beginPath();
-        ctx.moveTo(pad.left, y);
-        ctx.lineTo(w - pad.right, y);
-        ctx.stroke();
-        
-        ctx.fillStyle = &quot;#787b86&quot;;
-        ctx.font = &quot;11px sans-serif&quot;;
-        ctx.fillText(val + &quot;%&quot;, w - 5, y);
-    }
-
-    // 縦軸（日付ラベル：3日おき程度）
-    ctx.textAlign = &quot;center&quot;;
-    const daySec = 86400;
-    let lastLabelX = -100;
-    for (let t = viewMinTime; t &lt;= viewMaxTime; t += daySec) {
-        const x = xMap(t);
-        if (x &lt; pad.left || x &gt; w - pad.right) continue;
-        
-        // 日別のグリッド線
-        ctx.strokeStyle = &quot;#1e222d&quot;;
-        ctx.beginPath();
-        ctx.moveTo(x, pad.top);
-        ctx.lineTo(x, h - pad.bottom);
-        ctx.stroke();
-
-        // ラベル（重ならないように）
-        if (x - lastLabelX &gt; 60) {
-            const d = new Date(t * 1000);
-            const label = (d.getMonth() + 1) + &quot;/&quot; + d.getDate();
-            ctx.fillStyle = &quot;#787b86&quot;;
-            ctx.fillText(label, x, h - 15);
-            lastLabelX = x;
+    // 自前で日付パースを行う（ブラウザ互換性向上）
+    function parseCSVDate(str) {
+        try {
+            const cleanStr = str.trim().replace(/-/g, '/');
+            const parts = cleanStr.split(' ');
+            const datePart = parts[0].split('/');
+            const year = parseInt(datePart[0]);
+            const month = parseInt(datePart[1]) - 1;
+            const day = parseInt(datePart[2]);
+            
+            let hour = 0, min = 0;
+            if (parts.length > 1) {
+                const timePart = parts[1].split(':');
+                hour = parseInt(timePart[0]);
+                min = parseInt(timePart[1] || 0);
+            }
+            
+            const dt = new Date(year, month, day, hour, min, 0);
+            const ts = Math.floor(dt.getTime() / 1000);
+            return isNaN(ts) ? null : ts;
+        } catch(e) {
+            return null;
         }
     }
 
-    const drawLine = (data, color, width, isDashed = false) =&gt; {
-        const visibleData = data.filter(p =&gt; p.t &gt;= viewMinTime &amp;&amp; p.t &lt;= viewMaxTime);
-        if (visibleData.length &lt; 2) return;
-        
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
-        if (isDashed) ctx.setLineDash([4, 4]); else ctx.setLineDash([]);
-        
-        ctx.beginPath();
-        visibleData.forEach((p, i) =&gt; {
-            const x = xMap(p.t);
-            const y = yMap(p.v);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-    };
+    function processCSV(text, label) {
+        const lines = text.split(/\r?\n/).filter(line => line.includes(','));
+        const result = [];
+        let errorCount = 0;
 
-    // 描画順：1H -&gt; SMA -&gt; D1 (日足を一番上に)
-    drawLine(dataH1, &quot;#ff9800&quot;, 1.2);
-    drawLine(dataSMA, &quot;#4caf50&quot;, 1, true);
-    drawLine(dataD1, &quot;#2962ff&quot;, 3);
-}
+        for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',');
+            if (cols.length < 3) continue;
 
-function init() {
-    document.getElementById(&#39;fileD1&#39;).onchange = e =&gt; {
-        if (!e.target.files.length) return;
-        const r = new FileReader();
-        r.onload = () =&gt; { 
-            dataD1 = parseCSV(r.result); 
-            writeLog(&quot;日足読込完了。&quot;); 
-            draw(); 
-        };
-        r.readAsText(e.target.files[0]);
-    };
-    document.getElementById(&#39;fileH1&#39;).onchange = e =&gt; {
-        if (!e.target.files.length) return;
-        const r = new FileReader();
-        r.onload = () =&gt; {
-            dataH1 = parseCSV(r.result);
-            dataSMA = calculateSMA(dataH1, 5);
-            writeLog(&quot;1時間足読込完了（表示範囲を最適化しました）&quot;);
+            const ts = parseCSVDate(cols[0]);
+            const val = parseFloat(cols[2]);
+
+            if (ts !== null && !isNaN(val)) {
+                result.push({ t: ts, v: val });
+            } else {
+                errorCount++;
+            }
+        }
+        
+        const sorted = result.sort((a, b) => a.t - b.t);
+        addLog(`${label}: ${sorted.length}件読込完了 (エラー行: ${errorCount})`);
+        return sorted;
+    }
+
+    function calcSMA(data, n) {
+        const res = [];
+        for (let i = n - 1; i < data.length; i++) {
+            let sum = 0;
+            for (let j = 0; j < n; j++) sum += data[i - j].v;
+            res.push({ t: data[i].t, v: sum / n });
+        }
+        return res;
+    }
+
+    function draw() {
+        // 解像度対応
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+        
+        const w = rect.width;
+        const h = rect.height;
+        const pad = { top: 30, right: 55, bottom: 40, left: 10 };
+
+        ctx.fillStyle = "#131722";
+        ctx.fillRect(0, 0, w, h);
+
+        // 表示範囲の決定 (H1を優先)
+        if (hourlyData.length > 0) {
+            rangeMin = hourlyData[0].t;
+            rangeMax = hourlyData[hourlyData.length - 1].t;
+        } else if (dailyData.length > 0) {
+            rangeMin = dailyData[0].t;
+            rangeMax = dailyData[dailyData.length - 1].t;
+        } else {
+            return;
+        }
+
+        const tRange = rangeMax - rangeMin || 1;
+        const getX = (t) => pad.left + (t - rangeMin) / tRange * (w - pad.left - pad.right);
+        const getY = (v) => pad.top + (1 - v / 100) * (h - pad.top - pad.bottom);
+
+        // グリッドと％目盛り
+        ctx.strokeStyle = "#2b2b43";
+        ctx.lineWidth = 1;
+        ctx.font = "10px sans-serif";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+
+        for (let p = 0; p <= 100; p += 10) {
+            const y = getY(p);
+            ctx.beginPath();
+            ctx.moveTo(pad.left, y);
+            ctx.lineTo(w - pad.right, y);
+            ctx.stroke();
+            
+            ctx.fillStyle = "#787b86";
+            ctx.fillText(p + "%", w - 5, y);
+        }
+
+        // 日付ラベル (24時間 = 86400秒ごとに判定)
+        ctx.textAlign = "center";
+        let lastLabelX = -100;
+        for (let t = rangeMin; t <= rangeMax; t += 3600) {
+            const dt = new Date(t * 1000);
+            if (dt.getHours() === 0) { // 0時のみ日付を描画
+                const x = getX(t);
+                if (x >= pad.left && x <= w - pad.right) {
+                    ctx.strokeStyle = "#1e222d";
+                    ctx.beginPath();
+                    ctx.moveTo(x, pad.top);
+                    ctx.lineTo(x, h - pad.bottom);
+                    ctx.stroke();
+
+                    if (x - lastLabelX > 50) {
+                        ctx.fillStyle = "#787b86";
+                        ctx.fillText((dt.getMonth() + 1) + "/" + dt.getDate(), x, h - 15);
+                        lastLabelX = x;
+                    }
+                }
+            }
+        }
+
+        function plotLine(data, color, width, dash = []) {
+            // 表示範囲内のデータのみ抽出
+            const pts = data.filter(d => d.t >= rangeMin && d.t <= rangeMax);
+            if (pts.length < 2) return;
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = width;
+            ctx.setLineDash(dash);
+            ctx.beginPath();
+            
+            pts.forEach((pt, i) => {
+                const x = getX(pt.t);
+                const y = getY(pt.v);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // 描画 (1H -> SMA -> D1 の順で重ねる)
+        plotLine(hourlyData, "#ff9800", 1.2);
+        plotLine(smaData, "#4caf50", 1, [4, 4]);
+        plotLine(dailyData, "#2962ff", 3);
+        
+        addLog("キャンバスを更新しました。");
+    }
+
+    // ファイル入力設定
+    document.getElementById('d1Input').onchange = e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            dailyData = processCSV(reader.result, "日足");
             draw();
         };
-        r.readAsText(e.target.files[0]);
+        reader.readAsText(file);
     };
-}
 
-window.onload = init;
-window.onresize = draw;
+    document.getElementById('h1Input').onchange = e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            hourlyData = processCSV(reader.result, "1時間足");
+            smaData = calcSMA(hourlyData, 5);
+            draw();
+        };
+        reader.readAsText(file);
+    };
 
-
+    window.onresize = draw;
+    // 初期描画（背景のみ）
+    window.onload = draw;
 </script>
 
 </body>
