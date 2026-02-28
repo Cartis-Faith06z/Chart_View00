@@ -2,114 +2,116 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FX Debug Mode</title>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FX Bias Canvas</title>
     <style>
-        body { background: #131722; color: white; font-family: sans-serif; padding: 10px; margin: 0; }
-        .btn-box { background: #1e222d; padding: 15px; border-radius: 8px; border: 1px solid #363c4e; margin-bottom: 10px; }
-        input[type="file"] { width: 100%; margin-top: 10px; color: white; }
-        #log { 
-            background: #000; color: #0f0; font-family: monospace; font-size: 11px; 
-            padding: 10px; height: 120px; overflow-y: scroll; border: 1px solid #555; margin-bottom: 10px;
-            white-space: pre-wrap; word-break: break-all;
-        }
-        #chart { width: 100%; height: 400px; }
+        body { background: #131722; color: white; font-family: sans-serif; margin: 0; padding: 10px; overflow: hidden; }
+        .controls { background: #1e222d; padding: 10px; border-radius: 8px; border: 1px solid #363c4e; margin-bottom: 10px; }
+        #log { background: #000; color: #0f0; font-family: monospace; font-size: 11px; padding: 8px; height: 80px; overflow-y: scroll; border: 1px solid #555; margin-bottom: 10px; white-space: pre-wrap; }
+        input[type="file"] { width: 100%; margin-bottom: 10px; color: white; font-size: 14px; }
+        canvas { background: #131722; border: 1px solid #363c4e; width: 100%; height: calc(100vh - 250px); }
     </style>
 </head>
 <body>
-    <div class="btn-box">
-        <div id="log">【システムログ】ここに状況が表示されます。ファイルを選択してください。</div>
-        <label style="color:#2962ff; font-weight:bold;">1. 日足CSVを選択</label>
+    <div class="controls">
+        <div id="log">【ログ】ファイルを選択してください</div>
+        <label style="color:#2962ff; font-size:12px;">D1 CSV:</label>
         <input type="file" id="d1" accept=".csv">
-        <br><br>
-        <label style="color:#ff9800; font-weight:bold;">2. 1時間足CSVを選択</label>
+        <label style="color:#ff9800; font-size:12px;">H1 CSV:</label>
         <input type="file" id="h1" accept=".csv">
     </div>
-    <div id="chart"></div>
+    <canvas id="chartCanvas"></canvas>
 
     <script>
         const logEl = document.getElementById('log');
+        const canvas = document.getElementById('chartCanvas');
+        const ctx = canvas.getContext('2d');
+        let dailyData = [], hourlyData = [];
+
         function writeLog(msg) {
-            const now = new Date();
-            const time = now.getHours() + ":" + now.getMinutes() + ":" + now.getSeconds();
-            logEl.innerText += "\n[" + time + "] " + msg;
+            logEl.innerText += "\n> " + msg;
             logEl.scrollTop = logEl.scrollHeight;
-            console.log(msg);
         }
 
-        // チャート初期化
-        const chart = LightweightCharts.createChart(document.getElementById('chart'), {
-            layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
-            timeScale: { timeVisible: true }
-        });
-        const sD = chart.addLineSeries({ color: '#2962ff', title: '日足' });
-        const sH = chart.addLineSeries({ color: '#ff9800', title: '1時間' });
-
-        function processCSV(text, isH) {
-            writeLog("解析開始...");
-            const rows = text.split(/\r?\n/).filter(line => line.trim() !== "");
-            writeLog("総行数: " + rows.length);
-            
-            const data = [];
-            for(let i = 1; i < rows.length; i++) {
-                const cols = rows[i].split(',');
-                if(cols.length < 3) continue;
-
-                let tStr = cols[0].trim().replace(/-/g, '/');
-                // 日付の解釈
-                let dateObj = new Date(isH ? tStr : tStr + " 00:00:00");
-                let t = Math.floor(dateObj.getTime() / 1000);
-
-                if(!isNaN(t)) {
-                    data.push({ time: t, value: parseFloat(cols[2]) });
-                }
+        // CSVパース (簡易版)
+        function parseCSV(text) {
+            const rows = text.split(/\r?\n/).filter(r => r.includes(','));
+            const res = [];
+            for (let i = 1; i < rows.length; i++) {
+                const c = rows[i].split(',');
+                if (c.length < 3) continue;
+                const val = parseFloat(c[2]);
+                if (!isNaN(val)) res.push(val);
             }
-            writeLog("有効データ件数: " + data.length);
-            return data.sort((a,b) => a.time - b.time);
+            return res; // 今回は時系列順に並んでいる前提で単純化
         }
 
-        function setupListener(id, isH, series) {
-            document.getElementById(id).addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if(!file) {
-                    writeLog("ファイルが選択されていません");
-                    return;
-                }
-                writeLog("ファイル検知: " + file.name + " (" + file.size + " bytes)");
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (dailyData.length === 0 && hourlyData.length === 0) return;
 
-                const reader = new FileReader();
-                
-                reader.onload = function(evt) {
-                    writeLog("ファイル読み込み完了。パースします...");
-                    try {
-                        const result = processCSV(evt.target.result, isH);
-                        if(result.length > 0) {
-                            series.setData(result);
-                            writeLog("チャートへの描画に成功しました！");
-                        } else {
-                            writeLog("エラー: 有効なデータが見つかりませんでした。");
-                        }
-                    } catch(err) {
-                        writeLog("実行エラー: " + err.message);
-                    }
-                };
+            const maxData = Math.max(dailyData.length, hourlyData.length);
+            const step = canvas.width / maxData;
+            const yScale = canvas.height / 100; // 0-100%想定
 
-                reader.onerror = function() {
-                    writeLog("ブラウザによる読み取りエラーが発生しました。");
-                };
+            // ガイドライン (50%)
+            ctx.strokeStyle = "#333";
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
 
-                try {
-                    reader.readAsText(file);
-                    writeLog("FileReaderを開始しました...");
-                } catch(err) {
-                    writeLog("FileReader起動失敗: " + err.message);
-                }
-            });
+            // 1時間足 (オレンジ)
+            if (hourlyData.length > 0) {
+                ctx.strokeStyle = "#ff9800";
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                hourlyData.forEach((v, i) => {
+                    const x = i * (canvas.width / hourlyData.length);
+                    const y = canvas.height - (v * yScale);
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            }
+
+            // 日足 (青)
+            if (dailyData.length > 0) {
+                ctx.strokeStyle = "#2962ff";
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                dailyData.forEach((v, i) => {
+                    const x = i * (canvas.width / dailyData.length);
+                    const y = canvas.height - (v * yScale);
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            }
+            writeLog("描画完了");
         }
 
-        setupListener('d1', false, sD);
-        setupListener('h1', true, sH);
+        function init() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            document.getElementById('d1').onchange = e => {
+                const f = e.target.files[0];
+                writeLog("D1読み込み中...");
+                const r = new FileReader();
+                r.onload = () => { dailyData = parseCSV(r.result); writeLog("D1: " + dailyData.length + "件"); draw(); };
+                r.readAsText(f);
+            };
+
+            document.getElementById('h1').onchange = e => {
+                const f = e.target.files[0];
+                writeLog("H1読み込み中...");
+                const r = new FileReader();
+                r.onload = () => { hourlyData = parseCSV(r.result); writeLog("H1: " + hourlyData.length + "件"); draw(); };
+                r.readAsText(f);
+            };
+        }
+
+        window.onload = init;
+        window.onresize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; draw(); };
     </script>
 </body>
 </html>
