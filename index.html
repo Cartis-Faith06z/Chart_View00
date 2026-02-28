@@ -8,31 +8,30 @@
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; }
         
-        header { padding: 8px; background: var(--panel); border-bottom: 1px solid #363c4e; }
-        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 800px; margin: 0 auto; }
-        
-        .file-box { background: #2a2e39; border: 1px solid #444; border-radius: 6px; padding: 5px; text-align: center; }
-        .file-box label { display: block; font-size: 10px; font-weight: bold; color: var(--blue); margin-bottom: 2px; }
-        .file-box input { font-size: 9px; width: 100%; color: #787b86; }
+        header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; }
+        .file-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .file-input-group { background: #2a2e39; border: 1px solid #444; padding: 5px; border-radius: 4px; }
+        .file-input-group label { display: block; font-size: 10px; color: var(--blue); font-weight: bold; margin-bottom: 3px; }
+        input[type="file"] { font-size: 11px; width: 100%; color: #aaa; }
 
-        /* ズーム・スクロールコントロール */
-        .nav-controls { background: #1e222d; padding: 8px 15px; display: flex; flex-direction: column; gap: 5px; border-bottom: 1px solid #333; }
-        .slider-row { display: flex; align-items: center; gap: 10px; font-size: 11px; }
-        input[type="range"] { flex: 1; height: 4px; background: #363c4e; border-radius: 2px; outline: none; }
+        .view-controls { background: #1e222d; padding: 10px; border-bottom: 1px solid #333; font-size: 11px; }
+        .slider-box { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+        .slider-box label { width: 60px; }
+        input[type="range"] { flex: 1; accent-color: var(--blue); }
+
+        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 2px 10px; height: 18px; overflow: hidden; }
         
-        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 2px 12px; height: 18px; overflow: hidden; }
-        
-        .chart-container { position: relative; width: 100vw; height: calc(100vh - 210px); background: var(--bg); }
+        .chart-container { position: relative; width: 100vw; height: calc(100vh - 215px); background: var(--bg); }
         canvas { width: 100%; height: 100%; }
         
         #tooltip {
-            position: absolute; background: rgba(30, 34, 45, 0.95); border: 1px solid #485c7b;
+            position: absolute; background: rgba(30, 34, 45, 0.9); border: 1px solid #485c7b;
             padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100;
         }
-        .tt-date { color: #fff; font-weight: bold; margin-bottom: 3px; border-bottom: 1px solid #444; }
-        .tt-row { display: flex; justify-content: space-between; gap: 12px; }
+        .tt-date { color: #fff; border-bottom: 1px solid #444; margin-bottom: 4px; font-weight: bold; }
+        .tt-row { display: flex; justify-content: space-between; gap: 10px; }
         
-        .legend { display: flex; justify-content: center; gap: 10px; padding: 5px; background: var(--panel); font-size: 10px; border-top: 1px solid #363c4e; }
+        .legend { display: flex; justify-content: center; gap: 15px; padding: 5px; background: var(--panel); font-size: 10px; border-top: 1px solid #363c4e; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
         .line-box { width: 12px; height: 2px; }
     </style>
@@ -40,26 +39,32 @@
 <body>
 
 <header>
-    <div class="controls">
-        <div class="file-box"><label>日足 CSV</label><input type="file" id="d1Input" accept=".csv"></div>
-        <div class="file-box"><label>1時間足 CSV</label><input type="file" id="h1Input" accept=".csv"></div>
+    <div class="file-controls">
+        <div class="file-input-group">
+            <label>1. 日足 (D1) CSV</label>
+            <input type="file" id="d1In">
+        </div>
+        <div class="file-input-group">
+            <label>2. 1時間足 (H1) CSV</label>
+            <input type="file" id="h1In">
+        </div>
     </div>
 </header>
 
-<div class="nav-controls">
-    <div class="slider-row">
-        <label style="width:60px;">表示期間</label>
-        <input type="range" id="zoomRange" min="1" max="22" value="20">
-        <span id="zoomVal" style="width:30px;">20日</span>
+<div class="view-controls">
+    <div class="slider-box">
+        <label>表示期間</label>
+        <input type="range" id="zoom" min="1" max="30" value="20">
+        <span id="zoomDisp" style="width:30px;">20日</span>
     </div>
-    <div class="slider-row">
-        <label style="width:60px;">表示位置</label>
-        <input type="range" id="scrollRange" min="0" max="100" value="100">
+    <div class="slider-box">
+        <label>表示位置</label>
+        <input type="range" id="scroll" min="0" max="100" value="100">
         <span style="width:30px;">最新</span>
     </div>
 </div>
 
-<div id="log">CSVを読み込んでください。</div>
+<div id="log">ログ: CSVを順番に読み込んでください。</div>
 
 <div class="chart-container" id="container">
     <div id="tooltip"></div>
@@ -68,8 +73,8 @@
 
 <div class="legend">
     <div class="legend-item"><div class="line-box" style="background:var(--price)"></div>価格</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>日足比率</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>1H比率</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>日足</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>1時間</div>
     <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>5SMA</div>
 </div>
 
@@ -79,47 +84,50 @@
     const logEl = document.getElementById('log');
     const tooltip = document.getElementById('tooltip');
     const container = document.getElementById('container');
-    const zoomRange = document.getElementById('zoomRange');
-    const scrollRange = document.getElementById('scrollRange');
-    const zoomVal = document.getElementById('zoomVal');
+    
+    const zoomSld = document.getElementById('zoom');
+    const scrollSld = document.getElementById('scroll');
+    const zoomDisp = document.getElementById('zoomDisp');
 
-    let dailyData = [], hourlyData = [], smaData = [];
+    let dataD1 = [], dataH1 = [], dataSMA = [];
     let mouseX = -1;
     const pad = { top: 20, right: 65, bottom: 30, left: 10, gap: 25 };
 
-    function writeLog(msg) { logEl.innerText = "> " + msg; }
+    function writeLog(m) { logEl.innerText = "> " + m; }
 
-    function parseDate(s) {
-        const c = s.trim().replace(/-/g, '/');
-        const p = c.split(' ');
-        const d = p[0].split('/');
-        let h = 0, m = 0;
-        if(p[1]) { const t = p[1].split(':'); h = parseInt(t[0]); m = parseInt(t[1] || 0); }
-        const dt = new Date(parseInt(d[0]), parseInt(d[1])-1, parseInt(d[2]), h, m, 0);
-        return isNaN(dt.getTime()) ? null : Math.floor(dt.getTime() / 1000);
+    function parseCSVDate(s) {
+        try {
+            const clean = s.trim().replace(/-/g, '/');
+            const parts = clean.split(' ');
+            const d = parts[0].split('/');
+            let h = 0, m = 0;
+            if (parts.length > 1) { const t = parts[1].split(':'); h = parseInt(t[0]); m = parseInt(t[1] || 0); }
+            const dt = new Date(parseInt(d[0]), parseInt(d[1]) - 1, parseInt(d[2]), h, m, 0);
+            return isNaN(dt.getTime()) ? null : Math.floor(dt.getTime() / 1000);
+        } catch(e) { return null; }
     }
 
-    function processCSV(text) {
-        const rows = text.split(/\r?\n/).filter(l => l.includes(','));
+    function parseCSV(text) {
+        const lines = text.split(/\r?\n/).filter(l => l.includes(','));
         const res = [];
-        for (let i = 1; i < rows.length; i++) {
-            const cols = rows[i].split(',');
-            if (cols.length < 3) continue;
-            const ts = parseDate(cols[0]);
-            const val = parseFloat(cols[2]);
-            const prc = (cols.length >= 4 && cols[3].trim() !== "N/A") ? parseFloat(cols[3]) : null;
-            if (ts !== null && !isNaN(val)) res.push({ t: ts, v: val, p: prc });
+        for (let i = 1; i < lines.length; i++) {
+            const c = lines[i].split(',');
+            if (c.length < 3) continue;
+            const t = parseCSVDate(c[0]);
+            const v = parseFloat(c[2]);
+            const p = (c.length >= 4 && c[3].trim() !== "N/A") ? parseFloat(c[3]) : null;
+            if (t !== null && !isNaN(v)) res.push({ t, v, p });
         }
         return res.sort((a, b) => a.t - b.t);
     }
 
-    // 5SMAを計算（1時間足データを元にする）
-    function calcSMA(data) {
+    function getSMA(data, n) {
         const res = [];
         for (let i = 0; i < data.length; i++) {
-            if (i < 4) continue; // 5つ溜まるまでスキップ
-            const sum = data[i].v + data[i-1].v + data[i-2].v + data[i-3].v + data[i-4].v;
-            res.push({ t: data[i].t, v: sum / 5 });
+            if (i < n - 1) continue;
+            let sum = 0;
+            for (let j = 0; j < n; j++) sum += data[i - j].v;
+            res.push({ t: data[i].t, v: sum / n });
         }
         return res;
     }
@@ -135,92 +143,90 @@
         ctx.fillStyle = "#131722";
         ctx.fillRect(0, 0, w, h);
 
-        if (hourlyData.length === 0) return;
+        if (dataH1.length === 0) return;
 
-        // --- ズームとスクロールの計算 ---
-        const totalDuration = hourlyData[hourlyData.length-1].t - hourlyData[0].t;
-        const visibleWindow = parseInt(zoomRange.value) * 86400; // 秒換算
-        zoomVal.innerText = zoomRange.value + "日";
-
-        const maxScroll = totalDuration - visibleWindow;
-        const currentScroll = maxScroll * (parseInt(scrollRange.value) / 100);
+        // ビューポート計算
+        const totalDur = dataH1[dataH1.length-1].t - dataH1[0].t;
+        const viewDur = parseInt(zoomSld.value) * 86400;
+        zoomDisp.innerText = zoomSld.value + "日";
         
-        const viewMin = hourlyData[0].t + currentScroll;
-        const viewMax = viewMin + visibleWindow;
+        const scrollOffset = (totalDur - viewDur) * (parseInt(scrollSld.value) / 100);
+        const vMin = dataH1[0].t + scrollOffset;
+        const vMax = vMin + viewDur;
 
-        // --- スケール計算 ---
+        // 上下分割
         const splitY = h * 0.45;
-        const priceTop = pad.top, priceBottom = splitY;
-        const ratioTop = splitY + pad.gap, ratioBottom = h - pad.bottom;
+        const pTop = pad.top, pBot = splitY;
+        const rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
-        let vL = [], pL = [];
-        hourlyData.forEach(d => { if(d.t >= viewMin && d.t <= viewMax) { vL.push(d.v); if(d.p) pL.push(d.p); }});
-        dailyData.forEach(d => { if(d.t >= viewMin && d.t <= viewMax) { vL.push(d.v); }});
-        smaData.forEach(d => { if(d.t >= viewMin && d.t <= viewMax) { vL.push(d.v); }});
+        // スケール
+        let vList = [], pList = [];
+        dataH1.forEach(d => { if(d.t >= vMin && d.t <= vMax) { vList.push(d.v); if(d.p) pList.push(d.p); }});
+        dataD1.forEach(d => { if(d.t >= vMin && d.t <= vMax) vList.push(d.v); });
+        dataSMA.forEach(d => { if(d.t >= vMin && d.t <= vMax) vList.push(d.v); });
 
-        const vMin = Math.min(...vL) - 2, vMax = Math.max(...vL) + 2, vR = vMax - vMin || 1;
-        const pMin = Math.min(...pL) * 0.9995, pMax = Math.max(...pL) * 1.0005, pR = pMax - pMin || 0.001;
+        if(vList.length === 0) return;
+        const vLo = Math.min(...vList) - 2, vHi = Math.max(...vList) + 2, vR = vHi - vLo || 1;
+        const pLo = Math.min(...pList) * 0.9995, pHi = Math.max(...pList) * 1.0005, pR = pHi - pLo || 0.001;
 
-        const getX = (t) => pad.left + (t - viewMin) / (viewMax - viewMin) * (w - pad.left - pad.right);
-        const getYRatio = (v) => ratioBottom - ((v - vMin) / vR) * (ratioBottom - ratioTop);
-        const getYPrice = (p) => priceBottom - ((p - pMin) / pR) * (priceBottom - priceTop);
+        const getX = (t) => pad.left + (t - vMin) / (vMax - vMin) * (w - pad.left - pad.right);
+        const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
+        const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-        // グリッド描画
+        // グリッド
         ctx.lineWidth = 1; ctx.font = "9px sans-serif"; ctx.textAlign = "right";
         ctx.strokeStyle = "#2b2b43"; ctx.fillStyle = "#787b86";
         for (let i = 0; i <= 4; i++) {
-            const vy = getYRatio(vMin + (vR * i / 4));
+            const vy = getYRatio(vLo + (vR * i / 4));
             ctx.beginPath(); ctx.moveTo(pad.left, vy); ctx.lineTo(w - pad.right, vy); ctx.stroke();
-            ctx.fillText((vMin + (vR * i / 4)).toFixed(1) + "%", w - 5, vy + 3);
+            ctx.fillText((vLo + (vR * i / 4)).toFixed(1) + "%", w - 5, vy + 3);
             
-            const py = getYPrice(pMin + (pR * i / 4));
+            const py = getYPrice(pLo + (pR * i / 4));
             ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(w - pad.right, py); ctx.stroke();
-            ctx.fillText((pMin + (pR * i / 4)).toFixed(5), w - 5, py + 3);
+            ctx.fillText((pLo + (pR * i / 4)).toFixed(5), w - 5, py + 3);
         }
 
-        function plot(data, field, color, width, yFunc, dash = []) {
-            const pts = data.filter(d => d.t >= viewMin && d.t <= viewMax && d[field] !== null);
+        // 描画関数
+        function plotLine(dataset, field, color, width, yFunc, dash = []) {
+            const pts = dataset.filter(d => d.t >= vMin && d.t <= vMax && d[field] !== null);
             if (pts.length < 2) return;
             ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
             ctx.beginPath();
             pts.forEach((pt, i) => {
-                const x = getX(pt.t); const y = yFunc(pt[field]);
+                const x = getX(pt.t), y = yFunc(pt[field]);
                 if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             });
             ctx.stroke(); ctx.setLineDash([]);
         }
 
-        plot(hourlyData, 'v', "#ff9800", 1, getYRatio);
-        plot(smaData, 'v', "#4caf50", 1.2, getYRatio, [3, 3]);
-        plot(dailyData, 'v', "#2962ff", 3, getYRatio);
-        plot(hourlyData, 'p', "#ffffff", 1.5, getYPrice);
+        plotLine(dataH1, 'v', "#ff9800", 1, getYRatio);
+        plotLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [3, 3]);
+        plotLine(dataD1, 'v', "#2962ff", 3, getYRatio);
+        plotLine(dataH1, 'p', "#ffffff", 1.5, getYPrice);
 
-        // 時間軸ラベル (日付が変わるタイミング)
+        // 時間軸
         ctx.textAlign = "center";
-        for (let t = Math.floor(viewMin/3600)*3600; t <= viewMax; t += 3600) {
+        for (let t = Math.floor(vMin/3600)*3600; t <= vMax; t += 3600) {
             const dt = new Date(t * 1000);
             if (dt.getHours() === 0) {
                 const x = getX(t);
                 if (x >= pad.left && x <= w - pad.right) {
                     ctx.strokeStyle = "#363c4e";
-                    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, ratioBottom); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
                     ctx.fillText((dt.getMonth()+1)+"/"+dt.getDate(), x, h - 10);
                 }
             }
         }
 
-        // 十字線とツールチップ
+        // インタラクション
         if (mouseX > pad.left && mouseX < w - pad.right) {
-            const hoverTs = viewMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (viewMax - viewMin);
-            const nearH = hourlyData.reduce((p, c) => Math.abs(c.t - hoverTs) < Math.abs(p.t - hoverTs) ? c : p, hourlyData[0]);
-            const nearD = dailyData.find(d => Math.abs(d.t - nearH.t) < 43200) || {v: 0};
-            const nearSMA = smaData.reduce((p, c) => Math.abs(c.t - hoverTs) < Math.abs(p.t - hoverTs) ? c : p, {v: 0});
-
+            const hTs = vMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (vMax - vMin);
+            const nearH = dataH1.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, dataH1[0]);
+            const nearD = dataD1.find(d => Math.abs(d.t - nearH.t) < 43200) || {v: 0};
+            const nearS = dataSMA.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, {v: 0});
             const x = getX(nearH.t);
-            ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.setLineDash([4, 4]);
-            ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, ratioBottom); ctx.stroke();
-            ctx.setLineDash([]);
-
+            ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
+            ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
             const d = new Date(nearH.t * 1000);
             tooltip.style.display = "block";
             tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px";
@@ -228,37 +234,36 @@
             tooltip.innerHTML = `
                 <div class="tt-date">${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:00</div>
                 <div class="tt-row"><span style="color:#fff">Price:</span><span>${(nearH.p || 0).toFixed(5)}</span></div>
-                <div class="tt-row"><span style="color:var(--orange)">Hourly:</span><span>${nearH.v.toFixed(1)}%</span></div>
-                <div class="tt-row"><span style="color:var(--green)">5SMA:</span><span>${nearSMA.v.toFixed(1)}%</span></div>
+                <div class="tt-row"><span style="color:var(--orange)">H1 Bias:</span><span>${nearH.v.toFixed(1)}%</span></div>
+                <div class="tt-row"><span style="color:var(--green)">5SMA:</span><span>${nearS.v.toFixed(1)}%</span></div>
                 <div class="tt-row"><span style="color:var(--blue)">Daily:</span><span>${nearD.v.toFixed(1)}%</span></div>`;
         } else { tooltip.style.display = "none"; }
     }
 
-    // スライダー変更時に再描画
-    zoomRange.oninput = draw;
-    scrollRange.oninput = draw;
-
-    function setupInput(id, isH) {
-        document.getElementById(id).onchange = e => {
+    // 読み込みイベント
+    function initIn(id, isH) {
+        document.getElementById(id).addEventListener('change', e => {
             const f = e.target.files[0]; if(!f) return;
+            writeLog(f.name + " 読込開始...");
             const r = new FileReader();
-            r.onload = () => {
-                const d = processCSV(r.result);
-                if(isH) { hourlyData = d; smaData = calcSMA(d); } else { dailyData = d; }
-                writeLog(f.name + " 読込完了");
+            r.onload = ev => {
+                const res = parseCSV(ev.target.result);
+                if(isH) { dataH1 = res; dataSMA = getSMA(res, 5); } else { dataD1 = res; }
+                writeLog(f.name + " 完了 (" + res.length + "件)");
                 draw();
             };
             r.readAsText(f);
-        };
+        });
     }
-    setupInput('d1Input', false); setupInput('h1Input', true);
 
-    function handleMove(e) {
-        const rect = canvas.getBoundingClientRect();
-        const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
-        if(clientX === -1) return;
-        mouseX = clientX - rect.left; draw();
-    }
+    initIn('d1In', false); initIn('h1In', true);
+    zoomSld.oninput = draw; scrollSld.oninput = draw;
+    const handleMove = e => {
+        const r = canvas.getBoundingClientRect();
+        const cx = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
+        if(cx === -1) return;
+        mouseX = cx - r.left; draw();
+    };
     container.addEventListener('mousemove', handleMove);
     container.addEventListener('touchstart', handleMove);
     container.addEventListener('touchmove', handleMove);
