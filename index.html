@@ -225,9 +225,12 @@
         }
 
         // 描画実行
-        plotLine(dataH1, 'v', "#ff9800", 1, getYRatio);       // H1 強弱
+       plotLine(dataH1, 'v', "#ff9800", 1, getYRatio);       // H1 強弱
         plotLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]); // 10SMA (点線)
-        plotLine(dataD1, 'v', "#2962ff", 3, getYRatio);       // D1 強弱
+        
+        // --- 日足データの描画（右に1日分シフト） ---
+        const shiftD1 = dataD1.map(d => ({ ...d, t: d.t + 86400 })); 
+        plotLine(shiftD1, 'v', "#2962ff", 3, getYRatio);       // シフト済みD1 強弱
         
         // 価格ライン (H1優先、なければD1)
         if (hasH1 && dataH1.some(d => d.p !== null)) {
@@ -235,7 +238,6 @@
         } else {
             plotLine(dataD1, 'p', "#ffffff", 1.5, getYPrice);
         }
-
         // 時間軸の描画
         ctx.textAlign = "center";
         for (let t = Math.floor(vMin/86400)*86400; t <= vMax; t += 86400) {
@@ -252,7 +254,7 @@
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const hTs = vMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (vMax - vMin);
             const nearH = baseData.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, baseData[0]);
-            const nearD = dataD1.find(d => Math.abs(d.t - nearH.t) < 43200) || {v: 0, p: null};
+            const nearD = dataD1.find(d => Math.abs((d.t + 86400) - nearH.t) < 43200) || {v: 0, p: null};
             const nearS = dataSMA.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, {v: 0});
             
             const x = getX(nearH.t);
@@ -311,4 +313,5 @@
 </script>
 </body>
 </html>
+
 
