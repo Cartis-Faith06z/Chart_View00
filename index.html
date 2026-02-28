@@ -190,23 +190,27 @@
         const pTop = pad.top, pBot = splitY;
         const rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
+      // 表示範囲内のデータを集計してスケールを決定
         let vList = [], pList = [];
+        
+        // 強弱値(v)は全データから取得
         [dataH1, dataD1, dataSMA].forEach(ds => ds.forEach(d => {
             if(d.t >= vMin && d.t <= vMax) {
-                if(d.v !== undefined) vList.push(d.v);
+                if(d.v !== undefined && d.v !== null) vList.push(d.v);
+            }
+        }));
+
+        // 価格(p)はH1またはD1の実際の価格データのみから取得（Pivotは含めない）
+        [dataH1, dataD1].forEach(ds => ds.forEach(d => {
+            if(d.t >= vMin && d.t <= vMax) {
                 if(d.p !== undefined && d.p !== null) pList.push(d.p);
             }
         }));
 
-        // Pivotをスケール計算に含める
-        dataPivot.forEach(d => {
-            if (d.t >= vMin - 86400 && d.t <= vMax) {
-                Object.values(d.levels).forEach(val => { if(!isNaN(val)) pList.push(val); });
-            }
-        });
-
         if(vList.length === 0) return;
         const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
+        
+        // 価格スケール：Pivotを含まず、実際の価格の上下0.05%程度のマージンで固定
         const pLo = pList.length > 0 ? Math.min(...pList) * 0.9995 : 0;
         const pHi = pList.length > 0 ? Math.max(...pList) * 1.0005 : 1;
         const pR = pHi - pLo || 0.001;
@@ -350,3 +354,4 @@
 </script>
 </body>
 </html>
+
