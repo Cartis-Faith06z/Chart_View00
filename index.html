@@ -3,123 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Analysis Dashboard</title>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <title>FX Sync Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/3.8.0/lightweight-charts.standalone.production.js"></script>
     <style>
         body { background: #131722; color: #d1d4dc; font-family: sans-serif; margin: 0; padding: 0; overflow: hidden; }
-        header { background: #1e222d; padding: 15px; border-bottom: 1px solid #363c4e; }
-        .controls { display: flex; flex-direction: column; gap: 10px; max-width: 500px; margin: 0 auto; }
-        .input-row { display: flex; align-items: center; justify-content: space-between; background: #2a2e39; padding: 8px; border-radius: 4px; }
-        label { font-size: 12px; font-weight: bold; color: #2962ff; min-width: 80px; }
-        input[type="file"] { font-size: 12px; color: #787b86; width: 100%; }
-        #chart { width: 100vw; height: calc(100vh - 150px); }
-        #log { font-size: 10px; color: #4caf50; padding: 5px 15px; background: #000; height: 20px; overflow: hidden; }
+        header { background: #1e222d; padding: 10px; border-bottom: 1px solid #363c4e; height: 100px; }
+        .controls { display: flex; flex-direction: column; gap: 8px; max-width: 600px; margin: 0 auto; }
+        .input-row { display: flex; align-items: center; background: #2a2e39; padding: 5px 10px; border-radius: 4px; border: 1px solid #363c4e; }
+        label { font-size: 11px; font-weight: bold; color: #2962ff; width: 70px; }
+        input[type="file"] { font-size: 11px; color: #787b86; flex: 1; }
+        #chart { width: 100vw; height: calc(100vh - 120px); }
+        #status { font-size: 10px; color: #4caf50; text-align: center; background: #000; padding: 2px; height: 15px; }
     </style>
 </head>
 <body>
     <header>
         <div class="controls">
             <div class="input-row">
-                <label>日足CSV</label>
-                <input type="file" id="d1_input" accept="*/*">
+                <label>日足 CSV</label>
+                <input type="file" id="d1_in" accept=".csv">
             </div>
             <div class="input-row">
-                <label>1時間足CSV</label>
-                <input type="file" id="h1_input" accept="*/*">
+                <label>1時間足 CSV</label>
+                <input type="file" id="h1_in" accept=".csv">
             </div>
         </div>
     </header>
-    <div id="log">CSVファイルを選択してください...</div>
+    <div id="status">CSVを選択してください</div>
     <div id="chart"></div>
 
     <script>
-        const log = (m) => document.getElementById('log').innerText = m;
+        const status = (m) => document.getElementById('status').innerText = m;
 
-        // チャート設定
+        // チャートの初期化
         const chart = LightweightCharts.createChart(document.getElementById('chart'), {
             layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
             grid: { vertLines: { color: '#2b2b43' }, horzLines: { color: '#2b2b43' } },
-            timeScale: { 
-                timeVisible: true, 
-                secondsVisible: false,
-                borderColor: '#485c7b',
-            },
-            rightPriceScale: {
-                borderColor: '#485c7b',
-                autoScale: true,
-            },
+            timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#485c7b' },
+            rightPriceScale: { borderColor: '#485c7b', autoScale: true },
             localization: { locale: 'ja-JP' }
         });
 
-        // 各ラインの設定
-        const dailyLine  = chart.addLineSeries({ color: '#2962ff', lineWidth: 3, title: '日足' });
+        const dailyLine = chart.addLineSeries({ color: '#2962ff', lineWidth: 3, title: '日足' });
         const hourlyLine = chart.addLineSeries({ color: '#ff9800', lineWidth: 1, title: '1時間' });
-        const h4Line     = chart.addLineSeries({ color: '#f7525f', lineWidth: 2, title: '4時間' });
-        const smaLine    = chart.addLineSeries({ color: '#4caf50', lineWidth: 1, lineStyle: 2, title: '5SMA' });
 
-        // 日付をUnixタイムスタンプ(秒)に変換する関数
-        function toTimestamp(str) {
-            // "2026-02-23" や "2026/02/23 10:00" を統一
-            const formatted = str.trim().replace(/-/g, '/').replace(' ', 'T');
-            const d = new Date(formatted.includes('T') ? formatted : formatted + 'T00:00:00');
-            return Math.floor(d.getTime() / 1000);
+        // 安全に日付を秒単位のタイムスタンプに変換する関数
+        function safeTimestamp(str) {
+            // "2026-02-23" や "2026-02-23 10:00" をパース
+            const parts = str.trim().split(/[ T]/); // 日付と時間を分ける
+            const dateParts = parts[0].split(/[-/]/); // 年・月・日を分ける
+            
+            let y = parseInt(dateParts[0]), m = parseInt(dateParts[1]) - 1, d = parseInt(dateParts[2]);
+            let hh = 0, mm = 0;
+
+            if (parts.length > 1 && parts[1].includes(':')) {
+                const timeParts = parts[1].split(':');
+                hh = parseInt(timeParts[0]);
+                mm = parseInt(timeParts[1]);
+            }
+
+            // ローカル時間を考慮してDateオブジェクトを作成
+            const date = new Date(y, m, d, hh, mm, 0);
+            const ts = Math.floor(date.getTime() / 1000);
+            
+            // JST/UTCのズレを補正（秒単位）
+            return ts + (date.getTimezoneOffset() * -60);
         }
 
-        function parseCSV(text, isHourly) {
+        function parse(text, isH) {
             const lines = text.split(/\r?\n/).filter(l => l.includes(','));
-            const data = [];
-            for(let i = 1; i < lines.length; i++) {
+            const res = [];
+            for (let i = 1; i < lines.length; i++) {
                 const col = lines[i].split(',');
-                if(col.length < 3) continue;
-                const time = toTimestamp(col[0]);
+                if (col.length < 3) continue;
+                
+                const ts = safeTimestamp(col[0]);
                 const val = parseFloat(col[2]);
-                if(!isNaN(time) && !isNaN(val)) {
-                    data.push({ time: time, value: val });
+                
+                if (!isNaN(ts) && !isNaN(val)) {
+                    res.push({ time: ts, value: val });
                 }
             }
-            return data.sort((a, b) => a.time - b.time);
+            // タイムスタンプ順に並び替え
+            return res.sort((a, b) => a.time - b.time);
         }
 
-        // ファイル読み込み処理
-        function setupFile(id, isH, series) {
+        function setup(id, series, isH) {
             document.getElementById(id).addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if(!file) return;
-                log(file.name + " 読み込み中...");
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const result = parseCSV(evt.target.result, isH);
-                    if(result.length === 0) {
-                        log("エラー: 有効なデータが見つかりません。");
-                        return;
-                    }
-                    series.setData(result);
-                    
-                    if(isH) {
-                        // 4時間足データの抽出 (0, 4, 8...時)
-                        const h4Data = result.filter(d => new Date(d.time * 1000).getHours() % 4 === 0);
-                        h4Line.setData(h4Data);
-                        
-                        // 5SMAの計算
-                        const smaData = [];
-                        for(let i = 4; i < result.length; i++) {
-                            const avg = (result[i].value + result[i-1].value + result[i-2].value + result[i-3].value + result[i-4].value) / 5;
-                            smaData.push({ time: result[i].time, value: avg });
+                const f = e.target.files[0];
+                if (!f) return;
+                status(f.name + " 解析中...");
+                const r = new FileReader();
+                r.onload = (ev) => {
+                    try {
+                        const data = parse(ev.target.result, isH);
+                        if (data.length > 0) {
+                            series.setData(data);
+                            status(f.name + " 完了: " + data.length + "件");
+                        } else {
+                            status("エラー: 有効なデータがありません");
                         }
-                        smaLine.setData(smaData);
+                    } catch (err) {
+                        status("実行エラー: " + err.message);
                     }
-                    log(file.name + " の読み込みと同期が完了しました。");
                 };
-                reader.readAsText(file);
+                r.readAsText(f);
             });
         }
 
-        setupFile('d1_input', false, dailyLine);
-        setupFile('h1_input', true, hourlyLine);
+        setup('d1_in', dailyLine, false);
+        setup('h1_in', hourlyLine, true);
 
-        // リサイズ対応
         window.addEventListener('resize', () => {
-            chart.applyOptions({ width: window.innerWidth, height: window.innerHeight - 150 });
+            chart.applyOptions({ width: window.innerWidth, height: window.innerHeight - 120 });
         });
     </script>
 </body>
