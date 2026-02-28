@@ -3,28 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Interactive Dashboard</title>
+    <title>FX Analysis Pro</title>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --crosshair: #ffffff66; }
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; }
         
-        header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; }
+        header { padding: 8px; background: var(--panel); border-bottom: 1px solid #363c4e; }
         .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 800px; margin: 0 auto; }
-        .input-group { display: flex; flex-direction: column; background: #2a2e39; padding: 6px 10px; border-radius: 6px; border: 1px solid #444; }
-        label { font-size: 11px; font-weight: bold; margin-bottom: 4px; color: var(--blue); }
-        input[type="file"] { font-size: 11px; color: #787b86; width: 100%; }
         
-        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 12px; height: 30px; overflow: hidden; border-bottom: 1px solid #333; }
+        /* スマホで押しやすいようにラベルをボタン風に装飾 */
+        .file-box {
+            position: relative;
+            background: #2a2e39;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 10px 5px;
+            text-align: center;
+            overflow: hidden;
+        }
+        .file-box label { display: block; font-size: 11px; font-weight: bold; color: var(--blue); margin-bottom: 3px; }
+        .file-box input { font-size: 10px; width: 100%; color: #787b86; border: none; background: transparent; }
         
-        .chart-container { position: relative; width: 100vw; height: calc(100vh - 165px); background: var(--bg); cursor: crosshair; }
+        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 12px; height: 35px; overflow: hidden; border-bottom: 1px solid #333; line-height: 1.4; }
+        
+        .chart-container { position: relative; width: 100vw; height: calc(100vh - 170px); background: var(--bg); cursor: crosshair; }
         canvas { width: 100%; height: 100%; }
         
-        /* ツールチップ（フローティング） */
         #tooltip {
             position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(30, 34, 45, 0.9);
+            background: rgba(30, 34, 45, 0.95);
             border: 1px solid #485c7b;
             padding: 8px;
             border-radius: 4px;
@@ -34,7 +41,7 @@
             z-index: 100;
             box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         }
-        .tt-date { color: #fff; font-weight: bold; margin-bottom: 4px; border-bottom: 1px solid #444; padding-bottom: 2px; }
+        .tt-date { color: #fff; font-weight: bold; margin-bottom: 4px; border-bottom: 1px solid #444; }
         .tt-row { display: flex; justify-content: space-between; gap: 15px; margin-top: 2px; }
         
         .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; padding: 5px; background: var(--panel); font-size: 10px; border-top: 1px solid #363c4e; }
@@ -46,18 +53,19 @@
 
 <header>
     <div class="controls">
-        <div class="input-group">
-            <label>1. 日足 (D1) CSV</label>
-            <input type="file" id="d1Input" accept=".csv">
+        <div class="file-box">
+            <label>1. 日足 CSV (D1)</label>
+            <!-- Android対策: acceptを広く設定 -->
+            <input type="file" id="d1Input" accept=".csv,text/csv,text/plain,application/vnd.ms-excel">
         </div>
-        <div class="input-group">
-            <label>2. 1時間足 (H1) CSV</label>
-            <input type="file" id="h1Input" accept=".csv">
+        <div class="file-box">
+            <label>2. 1時間足 CSV (H1)</label>
+            <input type="file" id="h1Input" accept=".csv,text/csv,text/plain,application/vnd.ms-excel">
         </div>
     </div>
 </header>
 
-<div id="log">【操作】CSVを読み込み、グラフをなぞって数値を確認してください。</div>
+<div id="log">【ログ】CSVを選択してください。</div>
 
 <div class="chart-container" id="container">
     <div id="tooltip"></div>
@@ -82,7 +90,9 @@
     let rangeMinTs = 0, rangeMaxTs = 0;
     let mouseX = -1;
 
-    const pad = { top: 20, right: 60, bottom: 30, left: 10, gap: 25 };
+    const pad = { top: 20, right: 65, bottom: 30, left: 10, gap: 25 };
+
+    function writeLog(msg) { logEl.innerText = "> " + msg; }
 
     function parseCSVDate(str) {
         try {
@@ -172,7 +182,6 @@
             ctx.fillText((pMin + (pRange * i / 4)).toFixed(5), w - 5, py + 3);
         }
 
-        // プロット
         function plotLine(data, field, color, width, yFunc, dash = []) {
             const pts = data.filter(d => d.t >= rangeMinTs && d.t <= rangeMaxTs && d[field] !== null);
             if (pts.length < 2) return;
@@ -191,78 +200,68 @@
         plotLine(hourlyData, 'p', "#ffffff", 1.5, getYPrice);
         plotLine(dailyData, 'p', "#2962ff", 1, getYPrice, [2, 2]);
 
-        // インタラクション (垂直線とツールチップ)
+        // インタラクション
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const hoverTs = rangeMinTs + ((mouseX - pad.left) / (w - pad.left - pad.right)) * tRange;
-            
-            // 最も近い1時間足データを探す
-            const nearestH = hourlyData.reduce((prev, curr) => 
-                Math.abs(curr.t - hoverTs) < Math.abs(prev.t - hoverTs) ? curr : prev
-            );
-            
-            // 最も近い日足データを探す
+            const nearestH = hourlyData.reduce((prev, curr) => Math.abs(curr.t - hoverTs) < Math.abs(prev.t - hoverTs) ? curr : prev, hourlyData[0] || {});
             const dayTs = Math.floor(nearestH.t / 86400) * 86400;
             const nearestD = dailyData.find(d => Math.floor(d.t / 86400) * 86400 === dayTs) || {v: 0, p: 0};
-            
-            // SMA
-            const nearestSMA = smaData.reduce((prev, curr) => 
-                Math.abs(curr.t - hoverTs) < Math.abs(prev.t - hoverTs) ? curr : prev
-            , {v: 0});
+            const nearestSMA = smaData.reduce((prev, curr) => Math.abs(curr.t - hoverTs) < Math.abs(prev.t - hoverTs) ? curr : prev, {v: 0});
 
             const x = getX(nearestH.t);
-            
-            // 垂直線
-            ctx.strokeStyle = "rgba(255,255,255,0.4)";
-            ctx.lineWidth = 1; ctx.setLineDash([5, 5]);
-            ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, h - pad.bottom); ctx.stroke();
-            ctx.setLineDash([]);
+            ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1; ctx.setLineDash([5, 5]);
+            ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, h - pad.bottom); ctx.stroke(); ctx.setLineDash([]);
 
-            // ツールチップの更新
             const d = new Date(nearestH.t * 1000);
-            const dateStr = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:00`;
-            
             tooltip.style.display = "block";
-            tooltip.style.left = (x > w - 150 ? x - 140 : x + 10) + "px";
+            tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px";
             tooltip.style.top = "50px";
             tooltip.innerHTML = `
-                <div class="tt-date">${dateStr}</div>
+                <div class="tt-date">${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:00</div>
                 <div class="tt-row"><span style="color:#fff">Price:</span><span>${(nearestH.p || 0).toFixed(5)}</span></div>
                 <div class="tt-row"><span style="color:var(--blue)">Daily:</span><span>${nearestD.v.toFixed(1)}%</span></div>
                 <div class="tt-row"><span style="color:var(--orange)">Hourly:</span><span>${nearestH.v.toFixed(1)}%</span></div>
-                <div class="tt-row"><span style="color:var(--green)">5SMA:</span><span>${nearestSMA.v.toFixed(1)}%</span></div>
-            `;
-        } else {
-            tooltip.style.display = "none";
-        }
+                <div class="tt-row"><span style="color:var(--green)">5SMA:</span><span>${nearestSMA.v.toFixed(1)}%</span></div>`;
+        } else { tooltip.style.display = "none"; }
     }
 
-    // イベントリスナー
+    function setupInput(id, isH) {
+        const input = document.getElementById(id);
+        input.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            writeLog(file.name + " 読込中...");
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const data = processCSV(evt.target.result);
+                    if(isH) {
+                        hourlyData = data;
+                        smaData = calcSMA(data, 5);
+                    } else { dailyData = data; }
+                    draw();
+                    writeLog(file.name + " (" + data.length + "件) 完了");
+                } catch(err) { writeLog("エラー: " + err.message); }
+            };
+            reader.onerror = () => writeLog("読込エラー発生");
+            reader.readAsText(file);
+        });
+    }
+
+    setupInput('d1Input', false);
+    setupInput('h1Input', true);
+
     function handleMove(e) {
         const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
-        mouseX = x;
+        const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
+        if(clientX === -1) return;
+        mouseX = clientX - rect.left;
         draw();
     }
-
     container.addEventListener('mousemove', handleMove);
     container.addEventListener('touchstart', handleMove);
     container.addEventListener('touchmove', handleMove);
     container.addEventListener('mouseleave', () => { mouseX = -1; draw(); });
-
-    document.getElementById('d1Input').onchange = e => {
-        const f = e.target.files[0]; if (!f) return;
-        const r = new FileReader(); r.onload = () => { dailyData = processCSV(r.result); draw(); };
-        r.readAsText(f);
-    };
-    document.getElementById('h1Input').onchange = e => {
-        const f = e.target.files[0]; if (!f) return;
-        const r = new FileReader(); r.onload = () => {
-            hourlyData = processCSV(r.result);
-            smaData = calcSMA(hourlyData, 5);
-            draw();
-        };
-        r.readAsText(f);
-    };
 
     window.onresize = draw;
     window.onload = draw;
