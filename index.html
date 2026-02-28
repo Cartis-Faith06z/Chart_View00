@@ -3,109 +3,113 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FX Dashboard Debug</title>
+    <title>FX Debug Mode</title>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        body { background: #131722; color: white; font-family: sans-serif; margin: 0; padding: 10px; }
-        .controls { background: #1e222d; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #363c4e; }
-        .input-item { margin-bottom: 15px; }
-        label { display: block; font-size: 14px; margin-bottom: 5px; color: #2962ff; font-weight: bold; }
-        input[type="file"] { width: 100%; padding: 8px; background: #2a2e39; color: white; border: 1px solid #363c4e; }
-        #log { background: #000; color: #0f0; font-size: 10px; padding: 5px; height: 60px; overflow-y: auto; margin-bottom: 10px; border: 1px solid #333; }
-        #chart { width: 100%; height: 400px; background: #131722; }
+        body { background: #131722; color: white; font-family: sans-serif; padding: 10px; margin: 0; }
+        .btn-box { background: #1e222d; padding: 15px; border-radius: 8px; border: 1px solid #363c4e; margin-bottom: 10px; }
+        input[type="file"] { width: 100%; margin-top: 10px; color: white; }
+        #log { 
+            background: #000; color: #0f0; font-family: monospace; font-size: 11px; 
+            padding: 10px; height: 120px; overflow-y: scroll; border: 1px solid #555; margin-bottom: 10px;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        #chart { width: 100%; height: 400px; }
     </style>
 </head>
 <body>
-    <div class="controls">
-        <div id="log">ログを表示中... (ファイルを読み込むとここが動きます)</div>
-        
-        <div class="input-item">
-            <label>1. 日足 (D1) CSVを選択</label>
-            <input type="file" id="d1" accept=".csv, text/csv, *">
-        </div>
-        <div class="input-item">
-            <label>2. 1時間足 (H1) CSVを選択</label>
-            <input type="file" id="h1" accept=".csv, text/csv, *">
-        </div>
+    <div class="btn-box">
+        <div id="log">【システムログ】ここに状況が表示されます。ファイルを選択してください。</div>
+        <label style="color:#2962ff; font-weight:bold;">1. 日足CSVを選択</label>
+        <input type="file" id="d1" accept=".csv">
+        <br><br>
+        <label style="color:#ff9800; font-weight:bold;">2. 1時間足CSVを選択</label>
+        <input type="file" id="h1" accept=".csv">
     </div>
     <div id="chart"></div>
 
     <script>
-        const log = (msg) => {
-            const el = document.getElementById('log');
-            el.innerHTML += "<br>" + msg;
-            el.scrollTop = el.scrollHeight;
-        };
+        const logEl = document.getElementById('log');
+        function writeLog(msg) {
+            const now = new Date();
+            const time = now.getHours() + ":" + now.getMinutes() + ":" + now.getSeconds();
+            logEl.innerText += "\n[" + time + "] " + msg;
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(msg);
+        }
 
-        // チャートの作成
+        // チャート初期化
         const chart = LightweightCharts.createChart(document.getElementById('chart'), {
             layout: { backgroundColor: '#131722', textColor: '#d1d4dc' },
-            grid: { vertLines: { color: '#2b2b43' }, horzLines: { color: '#2b2b43' } },
-            timeScale: { timeVisible: true, borderVisible: false },
+            timeScale: { timeVisible: true }
         });
+        const sD = chart.addLineSeries({ color: '#2962ff', title: '日足' });
+        const sH = chart.addLineSeries({ color: '#ff9800', title: '1時間' });
 
-        const sD = chart.addLineSeries({ color: '#2962ff', lineWidth: 3, title: '日足' });
-        const sH = chart.addLineSeries({ color: '#ff9800', lineWidth: 1, title: '1時間' });
-        const s4 = chart.addLineSeries({ color: '#f7525f', lineWidth: 2, title: '4時間' });
-        const sM = chart.addLineSeries({ color: '#4caf50', lineWidth: 1, lineStyle: 2, title: '5SMA' });
+        function processCSV(text, isH) {
+            writeLog("解析開始...");
+            const rows = text.split(/\r?\n/).filter(line => line.trim() !== "");
+            writeLog("総行数: " + rows.length);
+            
+            const data = [];
+            for(let i = 1; i < rows.length; i++) {
+                const cols = rows[i].split(',');
+                if(cols.length < 3) continue;
 
-        function parse(text, isH) {
-            try {
-                const lines = text.split(/\r?\n/).filter(l => l.includes(','));
-                const res = [];
-                for(let i=1; i<lines.length; i++) {
-                    const c = lines[i].split(',');
-                    if(c.length < 3) continue;
-                    
-                    let tStr = c[0].trim().replace(/-/g, '/');
-                    // スマホ・ブラウザ互換性のための日付処理
-                    let dateObj = new Date(isH ? tStr : tStr + " 00:00:00");
-                    let t = Math.floor(dateObj.getTime() / 1000);
-                    
-                    if(!isNaN(t)) {
-                        res.push({ time: t, value: parseFloat(c[2]) });
-                    }
+                let tStr = cols[0].trim().replace(/-/g, '/');
+                // 日付の解釈
+                let dateObj = new Date(isH ? tStr : tStr + " 00:00:00");
+                let t = Math.floor(dateObj.getTime() / 1000);
+
+                if(!isNaN(t)) {
+                    data.push({ time: t, value: parseFloat(cols[2]) });
                 }
-                res.sort((a,b) => a.time - b.time);
-                log( (isH ? "H1" : "D1") + "パース成功: " + res.length + "件");
-                return res;
-            } catch(e) {
-                log("エラー: " + e.message);
-                return [];
             }
+            writeLog("有効データ件数: " + data.length);
+            return data.sort((a,b) => a.time - b.time);
         }
 
-        function setup(id, isH, series) {
-            document.getElementById(id).onchange = (e) => {
-                const f = e.target.files[0];
-                if(!f) return;
-                log(f.name + " を選択しました");
-                const r = new FileReader();
-                r.onload = () => {
-                    log("ファイル読込完了、解析開始...");
-                    const data = parse(r.result, isH);
-                    if(data.length > 0) {
-                        series.setData(data);
-                        if(isH) {
-                            s4.setData(data.filter(x => new Date(x.time*1000).getHours() % 4 === 0));
-                            const sma = [];
-                            for(let i=4; i<data.length; i++) {
-                                sma.push({ time: data[i].time, value: (data[i].value+data[i-1].value+data[i-2].value+data[i-3].value+data[i-4].value)/5 });
-                            }
-                            sM.setData(sma);
+        function setupListener(id, isH, series) {
+            document.getElementById(id).addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if(!file) {
+                    writeLog("ファイルが選択されていません");
+                    return;
+                }
+                writeLog("ファイル検知: " + file.name + " (" + file.size + " bytes)");
+
+                const reader = new FileReader();
+                
+                reader.onload = function(evt) {
+                    writeLog("ファイル読み込み完了。パースします...");
+                    try {
+                        const result = processCSV(evt.target.result, isH);
+                        if(result.length > 0) {
+                            series.setData(result);
+                            writeLog("チャートへの描画に成功しました！");
+                        } else {
+                            writeLog("エラー: 有効なデータが見つかりませんでした。");
                         }
-                        log("チャートへの描画が完了しました。");
+                    } catch(err) {
+                        writeLog("実行エラー: " + err.message);
                     }
                 };
-                r.onerror = () => log("ファイル読み込み中にエラーが発生しました。");
-                r.readAsText(f);
-            };
+
+                reader.onerror = function() {
+                    writeLog("ブラウザによる読み取りエラーが発生しました。");
+                };
+
+                try {
+                    reader.readAsText(file);
+                    writeLog("FileReaderを開始しました...");
+                } catch(err) {
+                    writeLog("FileReader起動失敗: " + err.message);
+                }
+            });
         }
 
-        setup('d1', false, sD);
-        setup('h1', true, sH);
-
-        window.onresize = () => chart.applyOptions({ width: window.innerWidth - 20 });
+        setupListener('d1', false, sD);
+        setupListener('h1', true, sH);
     </script>
 </body>
 </html>
