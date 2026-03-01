@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard - Stable Version</title>
+    <title>FX Dashboard - Daily SMA Edition</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; }
@@ -49,9 +49,9 @@
     <div class="legend-item"><div class="line-box" style="background:rgba(255,255,255,0.3)"></div>生価格</div>
     <div class="legend-item"><div class="line-box" style="background:var(--cyan)"></div>価格10SMA</div>
     <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>日足比率</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--blue); border-top:1px dashed white;"></div>日足5SMA</div>
     <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>H1比率</div>
     <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>比率10SMA</div>
-    <div class="legend-item"><div class="line-box" style="background:#ffeb3b"></div>PP</div>
 </div>
 
 <script>
@@ -64,7 +64,7 @@
     const scrollSld = document.getElementById('scroll');
     const zoomDisp = document.getElementById('zoomDisp');
 
-    let dataD1 = [], dataH1 = [], dataSMA = [], dataPriceSMA = [], dataPivot = [];
+    let dataD1 = [], dataD1SMA = [], dataH1 = [], dataSMA = [], dataPriceSMA = [], dataPivot = [];
     let mouseX = -1;
     const pad = { top: 20, right: 65, bottom: 30, left: 10, gap: 25 };
 
@@ -154,6 +154,11 @@
             if (d.p !== null && !isNaN(d.p)) pList.push(d.p);
             if (isH1 && dataPriceSMA[i] && !isNaN(dataPriceSMA[i].v)) pList.push(dataPriceSMA[i].v);
         }
+        // 日足データのスケーリング考慮
+        dataD1.forEach(d => {
+            const tS = d.t + 86400;
+            if (tS >= mainData[Math.floor(iMin)].t && tS <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) vList.push(d.v);
+        });
 
         if(vList.length === 0) return;
         const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
@@ -203,44 +208,51 @@
             let first = true;
             for (let i = Math.floor(iMin); i <= Math.ceil(iMax); i++) {
                 if (i < 0 || i >= ds.length || ds[i][f] === null || isNaN(ds[i][f])) continue;
-                const x = getX(i), y = yF(ds[i][f]);
+                const x = getX(i); const y = yF(ds[i][f]);
                 if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
             }
             ctx.stroke(); ctx.setLineDash([]);
         };
 
-        // 線描写
+        // 線描写 (H1)
         if (isH1) {
             drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio);
             drawMainLine(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
         }
         
-        // --- 下段: 日足比率 (青太線) のリアルタイム投影 ---
-        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.setLineDash([]); ctx.beginPath();
-        let lastX = -1;
-        let lastV = -1;
-
-        dataD1.forEach((d, idx) => {
-            const tS = d.t + 86400; // 前日分を今日にシフト
-            let i = mainData.findIndex(m => m.t >= tS);
-            
-            // データが見つからない場合、チャートの末尾付近であれば末尾に固定
-            if (i === -1 && tS >= mainData[maxIdx].t) i = maxIdx;
-            
-            if (i !== -1) {
-                const x = getX(i); 
-                const y = getYRatio(d.v);
+        // 日足比率 (青太線)
+        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.beginPath();
+        let lastX = -1, lastV = -1;
+        dataD1.forEach(d => {
+            const tS = d.t + 86400;
+            let idx = mainData.findIndex(m => m.t >= tS);
+            if (idx === -1 && tS >= mainData[maxIdx].t) idx = maxIdx;
+            if (idx !== -1) {
+                const x = getX(idx), y = getYRatio(d.v);
                 if (lastX === -1) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-                lastX = x;
-                lastV = d.v;
+                lastX = x; lastV = d.v;
             }
         });
-
-        // ★重要：最新の値をチャートの右端（最新時間足の位置）まで延長する
-        if (lastX !== -1 && lastX < getX(maxIdx)) {
-            ctx.lineTo(getX(maxIdx), getYRatio(lastV));
-        }
+        if (lastX !== -1 && lastX < getX(maxIdx)) ctx.lineTo(getX(maxIdx), getYRatio(lastV));
         ctx.stroke();
+
+        // 日足5SMA (青破線)
+        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.beginPath();
+        let lastSX = -1, lastSV = -1;
+        dataD1SMA.forEach(d => {
+            if (isNaN(d.v)) return;
+            const tS = d.t + 86400;
+            let idx = mainData.findIndex(m => m.t >= tS);
+            if (idx === -1 && tS >= mainData[maxIdx].t) idx = maxIdx;
+            if (idx !== -1) {
+                const x = getX(idx), y = getYRatio(d.v);
+                if (lastSX === -1) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                lastSX = x; lastSV = d.v;
+            }
+        });
+        if (lastSX !== -1 && lastSX < getX(maxIdx)) ctx.lineTo(getX(maxIdx), getYRatio(lastSV));
+        ctx.stroke();
+        ctx.setLineDash([]);
 
         // 価格ライン
         drawMainLine(mainData, 'p', "rgba(255,255,255,0.3)", 1, getYPrice);
@@ -266,9 +278,13 @@
                 const x = getX(iH); ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
                 ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
                 tooltip.style.display = "block"; tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
+                const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: 0};
+                const nearDSMA = dataD1SMA.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: NaN};
                 tooltip.innerHTML = `<div class="tt-date">${new Date(d.t*1000).toLocaleString()}</div>
-                    <div class=\"tt-row\"><span>Price:</span><span>${(d.p || 0).toFixed(5)}</span></div>
-                    <div class=\"tt-row\"><span style=\"color:var(--cyan)\">Price SMA:</span><span>${(dataPriceSMA[iH]?.v || 0).toFixed(5)}</span></div>`;
+                    <div class="tt-row"><span>Price:</span><span>${(d.p || 0).toFixed(5)}</span></div>
+                    <div class="tt-row"><span style="color:var(--cyan)">Price SMA:</span><span>${(dataPriceSMA[iH]?.v || 0).toFixed(5)}</span></div>
+                    <div class="tt-row"><span style="color:var(--blue)">Daily Bias:</span><span>${nearD.v.toFixed(1)}%</span></div>
+                    <div class="tt-row"><span style="color:var(--blue)">Daily 5SMA:</span><span>${isNaN(nearDSMA.v) ? '--' : nearDSMA.v.toFixed(1)}%</span></div>`;
             }
         } else tooltip.style.display = "none";
     }
@@ -285,7 +301,10 @@
                     dataSMA = getSMA(dataH1, 10, 'v'); 
                     dataPriceSMA = getSMA(dataH1, 10, 'p'); 
                 }
-                else dataD1 = parseCSV(ev.target.result);
+                else {
+                    dataD1 = parseCSV(ev.target.result);
+                    dataD1SMA = getSMA(dataD1, 5, 'v'); // 日足5SMA計算
+                }
                 writeLog(f.name + " 完了"); draw();
             };
             r.readAsText(f);
@@ -304,4 +323,3 @@
 </script>
 </body>
 </html>
-
