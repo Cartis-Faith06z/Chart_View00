@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Strategy Dashboard - Pullback Finder</title>
+    <title>FX Dashboard - Final Signal</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; }
@@ -20,8 +20,6 @@
         .chart-container { position: relative; width: 100vw; height: calc(100vh - 215px); background: var(--bg); }
         canvas { width: 100%; height: 100%; }
         #tooltip { position: absolute; background: rgba(30, 34, 45, 0.9); border: 1px solid #485c7b; padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; }
-        .tt-date { color: #fff; border-bottom: 1px solid #444; margin-bottom: 4px; font-weight: bold; }
-        .tt-row { display: flex; justify-content: space-between; gap: 10px; }
         .legend { display: flex; justify-content: center; gap: 10px; padding: 5px; background: var(--panel); font-size: 9px; border-top: 1px solid #363c4e; flex-wrap: wrap; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
         .line-box { width: 10px; height: 2px; }
@@ -47,11 +45,9 @@
 
 <div class="legend">
     <div class="legend-item"><div class="line-box" style="background:var(--cyan)"></div>価格10SMA</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>日足</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>比率10SMA</div>
-    <div class="legend-item"><div class="line-box" style="background:rgba(41,98,255,0.12); height:10px; width:10px;"></div>強気トレンド</div>
-    <div class="legend-item"><div class="line-box" style="background:rgba(244,67,54,0.12); height:10px; width:10px;"></div>弱気トレンド</div>
-    <div class="legend-item"><div class="line-box" style="background:#fff; border-radius:50%; width:6px; height:6px;"></div>Pivot接触</div>
+    <div class="legend-item"><div class="line-box" style="background:rgba(41,98,255,0.25); height:10px; width:10px;"></div>強気(日足&H1一致)</div>
+    <div class="legend-item"><div class="line-box" style="background:rgba(244,67,54,0.25); height:10px; width:10px;"></div>弱気(日足&H1一致)</div>
+    <div class="legend-item"><div class="line-box" style="background:#ffff00; border-radius:50%; width:8px; height:8px;"></div>★エントリー点</div>
 </div>
 
 <script>
@@ -165,42 +161,40 @@
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-        // --- トレンド判定と背景描画 ---
-        let currentTrend = 0; // 1:Up, -1:Down
-        for (let i = Math.floor(iMin); i <= iMax; i++) {
-            if (i < 3) continue;
-            const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - mainData[i].t) < 43200);
-            const nearDPrev = dataD1.find(dd => Math.abs((dd.t + 86400) - mainData[i-3].t) < 43200);
-            const sma = dataSMA[i], smaPrev = dataSMA[i-3];
+        // --- 1. 背景描画 (日足とH1比率の方向一致) ---
+        for (let i = Math.floor(iMin); i < iMax; i++) {
+            const d = mainData[i];
+            const dPrev = mainData[Math.max(0, i-1)];
+            const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200);
+            const nearDPrev = dataD1.find(dd => Math.abs((dd.t + 86400) - dPrev.t) < 43200);
+            const sma = dataSMA[i], smaPrev = dataSMA[Math.max(0, i-1)];
 
-            if (nearD && nearDPrev && sma && smaPrev) {
+            if (nearD && nearDPrev && !isNaN(sma.v) && !isNaN(smaPrev.v)) {
                 const dailyDir = nearD.v - nearDPrev.v;
                 const h1SmaDir = sma.v - smaPrev.v;
                 
-                if (dailyDir > 0.5 && h1SmaDir > 0.5) currentTrend = 1;
-                else if (dailyDir < -0.5 && h1SmaDir < -0.5) currentTrend = -1;
-                else if (Math.abs(dailyDir) < 0.1 || Math.abs(h1SmaDir) < 0.1) currentTrend = 0;
-
-                if (currentTrend !== 0) {
-                    ctx.fillStyle = currentTrend === 1 ? "rgba(41,98,255,0.12)" : "rgba(244,67,54,0.12)";
-                    ctx.fillRect(getX(i), pad.top, getX(i+1) - getX(i), rBot - pad.top);
+                if (dailyDir > 0 && h1SmaDir > 0) {
+                    ctx.fillStyle = "rgba(41,98,255,0.25)";
+                    ctx.fillRect(getX(i), pad.top, getX(i+1)-getX(i), rBot-pad.top);
+                } else if (dailyDir < 0 && h1SmaDir < 0) {
+                    ctx.fillStyle = "rgba(244,67,54,0.25)";
+                    ctx.fillRect(getX(i), pad.top, getX(i+1)-getX(i), rBot-pad.top);
                 }
             }
         }
 
-        // グリッド描画
-        ctx.lineWidth = 1; ctx.font = "9px sans-serif"; ctx.textAlign = "right"; ctx.strokeStyle = "#2b2b43"; ctx.fillStyle = "#787b86";
+        // グリッド
+        ctx.lineWidth = 1; ctx.strokeStyle = "#2b2b43";
         for (let i = 0; i <= 4; i++) {
             const vy = getYRatio(vLo + (vR * i / 4));
             ctx.beginPath(); ctx.moveTo(pad.left, vy); ctx.lineTo(w - pad.right, vy); ctx.stroke();
             if (pList.length > 0) {
                 const py = getYPrice(pLo + (pR * i / 4));
                 ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(w - pad.right, py); ctx.stroke();
-                ctx.fillText((pLo + (pR * i / 4)).toFixed(5), w - 5, py + 3);
             }
         }
 
-        // Pivot描画 & タッチ判定
+        // --- 2. Pivot描画 & ★エントリー点判定 ---
         if (isH1) {
             dataPivot.forEach(pv => {
                 const dayStart = pv.t, dayEnd = pv.t + 86400;
@@ -210,18 +204,31 @@
                     if (mainData[i].t < dayEnd) eIdx = i;
                 }
                 if (sIdx !== -1 && eIdx !== -1) {
-                    const x1 = Math.max(getX(sIdx), pad.left), x2 = Math.min(getX(eIdx + 1), w - pad.right);
                     Object.entries(pv.levels).forEach(([k, val]) => {
-                        const y = getYPrice(val); if (y < pTop || y > pBot) return;
-                        ctx.strokeStyle = k === 'PP' ? "rgba(255, 235, 59, 0.4)" : (k.startsWith('R') ? "rgba(244, 67, 54, 0.3)" : "rgba(33, 150, 243, 0.3)");
-                        ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+                        const y = getYPrice(val);
+                        ctx.strokeStyle = k === 'PP' ? "rgba(255, 255, 0, 0.6)" : "rgba(255, 255, 255, 0.2)";
+                        ctx.beginPath(); ctx.moveTo(getX(sIdx), y); ctx.lineTo(getX(eIdx+1), y); ctx.stroke();
 
-                        // ★条件一致時のPivotタッチ強調
+                        // 条件一致時の判定
                         for (let j = Math.max(sIdx, Math.floor(iMin)); j <= Math.min(eIdx, iMax); j++) {
-                            const psma = dataPriceSMA[j]; if (!psma) continue;
-                            const isPullback = (currentTrend === 1 && mainData[j].p < psma.v) || (currentTrend === -1 && mainData[j].p > psma.v);
-                            if (isPullback && Math.abs(mainData[j].p - val) < pR * 0.008) {
-                                ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(getX(j), y, 4, 0, Math.PI*2); ctx.fill();
+                            if (j < 1) continue;
+                            const d = mainData[j]; const psma = dataPriceSMA[j];
+                            if (!psma || isNaN(psma.v)) continue;
+                            
+                            // トレンド判定
+                            const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200);
+                            const nearDPrev = dataD1.find(dd => Math.abs((dd.t + 86400) - mainData[j-1].t) < 43200);
+                            const bsma = dataSMA[j]; const bsmaPrev = dataSMA[j-1];
+                            const trendUp = (nearD && nearDPrev && nearD.v > nearDPrev.v && bsma.v > bsmaPrev.v);
+                            const trendDown = (nearD && nearDPrev && nearD.v < nearDPrev.v && bsma.v < bsmaPrev.v);
+
+                            // 「一押し」の判定: 価格が生価格SMAをまたいでいる
+                            const isPullback = (trendUp && d.p < psma.v) || (trendDown && d.p > psma.v);
+
+                            // Pivot接触判定 (許容範囲を少し広めに設定)
+                            if (isPullback && Math.abs(d.p - val) < pR * 0.015) {
+                                ctx.fillStyle = "#ffff00"; ctx.beginPath(); ctx.arc(getX(j), y, 5, 0, Math.PI*2); ctx.fill();
+                                ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
                             }
                         }
                     });
@@ -240,44 +247,19 @@
             ctx.stroke(); ctx.setLineDash([]);
         };
 
-        // 線描画
-        if (isH1) { drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio); drawMainLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]); }
+        // 線の描画
+        if (isH1) { drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio); drawMainLine(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]); }
         ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.beginPath();
-        dataD1.forEach((d, i) => {
-            const tS = d.t + 86400; let idx = mainData.findIndex(m => m.t >= tS);
-            if (idx === -1 && tS >= mainData[maxIdx].t) idx = maxIdx;
-            if (idx !== -1 && idx >= iMin - 5 && idx <= iMax + 5) {
-                const x = getX(idx), y = getYRatio(d.v);
-                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        dataD1.forEach((d, idx) => {
+            const tS = d.t + 86400; let i = mainData.findIndex(m => m.t >= tS);
+            if (i === -1 && tS >= mainData[maxIdx].t) i = maxIdx;
+            if (i !== -1 && i >= iMin - 5 && i <= iMax + 5) {
+                const x = getX(i), y = getYRatio(d.v); if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             }
         });
         ctx.stroke();
-        drawMainLine(mainData, 'p', "rgba(255,255,255,0.25)", 1, getYPrice);
+        drawMainLine(mainData, 'p', "rgba(255,255,255,0.3)", 1, getYPrice);
         if (isH1) drawMainLine(dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
-
-        // 時間軸 & ツールチップ (省略せず維持)
-        ctx.textAlign = "center"; ctx.fillStyle = "#787b86";
-        for (let i = Math.floor(iMin); i <= iMax; i++) {
-            const d1 = mainData[i], d0 = mainData[i-1];
-            if (!d0 || new Date(d1.t * 1000).getDate() !== new Date(d0.t * 1000).getDate()) {
-                const x = getX(i); if (x >= pad.left && x <= w - pad.right) {
-                    ctx.strokeStyle = "#363c4e"; ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
-                    const dt = new Date(d1.t * 1000); ctx.fillText((dt.getMonth()+1)+"/"+dt.getDate(), x, h - 10);
-                }
-            }
-        }
-        if (mouseX > pad.left && mouseX < w - pad.right) {
-            const iH = Math.round(iMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (iMax - iMin));
-            const d = mainData[Math.min(maxIdx, Math.max(0, iH))];
-            if (d) {
-                const x = getX(iH); ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
-                ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
-                tooltip.style.display = "block"; tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
-                tooltip.innerHTML = `<div class="tt-date">${new Date(d.t*1000).toLocaleString()}</div>
-                    <div class="tt-row"><span>Price:</span><span>${(d.p || 0).toFixed(5)}</span></div>
-                    <div class="tt-row"><span style="color:var(--cyan)">Price SMA:</span><span>${(dataPriceSMA[iH]?.v || 0).toFixed(5)}</span></div>`;
-            }
-        } else tooltip.style.display = "none";
     }
 
     function initIn(id, type) {
@@ -297,12 +279,6 @@
 
     initIn('d1In', 'd1'); initIn('h1In', 'h1'); initIn('pivotIn', 'pivot');
     zoomSld.oninput = draw; scrollSld.oninput = draw;
-    const handleMove = e => {
-        const r = canvas.getBoundingClientRect(); const cx = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
-        if(cx === -1) return; mouseX = cx - r.left; draw();
-    };
-    container.addEventListener('mousemove', handleMove); container.addEventListener('touchstart', handleMove);
-    container.addEventListener('touchmove', handleMove); container.addEventListener('mouseleave', () => { mouseX = -1; draw(); });
     window.onresize = draw; window.onload = draw;
 </script>
 </body>
