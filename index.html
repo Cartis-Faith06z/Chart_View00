@@ -1,88 +1,12 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard Pro (with Pivot)</title>
-    <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; }
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; }
-        
-        header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; }
-        .file-controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-        .file-input-group { background: #2a2e39; border: 1px solid #444; padding: 5px; border-radius: 4px; }
-        .file-input-group label { display: block; font-size: 10px; color: var(--blue); font-weight: bold; margin-bottom: 3px; }
-        input[type="file"] { font-size: 11px; width: 100%; color: #aaa; }
-
-        .view-controls { background: #1e222d; padding: 10px; border-bottom: 1px solid #333; font-size: 11px; }
-        .slider-box { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
-        .slider-box label { width: 60px; }
-        input[type="range"] { flex: 1; accent-color: var(--blue); }
-
-        #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 2px 10px; height: 18px; overflow: hidden; }
-        
-        .chart-container { position: relative; width: 100vw; height: calc(100vh - 215px); background: var(--bg); }
-        canvas { width: 100%; height: 100%; }
-        
-        #tooltip {
-            position: absolute; background: rgba(30, 34, 45, 0.9); border: 1px solid #485c7b;
-            padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100;
-        }
-        .tt-date { color: #fff; border-bottom: 1px solid #444; margin-bottom: 4px; font-weight: bold; }
-        .tt-row { display: flex; justify-content: space-between; gap: 10px; }
-        
-        .legend { display: flex; justify-content: center; gap: 10px; padding: 5px; background: var(--panel); font-size: 9px; border-top: 1px solid #363c4e; flex-wrap: wrap; }
-        .legend-item { display: flex; align-items: center; gap: 4px; }
-        .line-box { width: 10px; height: 2px; }
-    </style>
-</head>
-<body>
-
-<header>
-    <div class="file-controls">
-        <div class="file-input-group">
-            <label>1. 日足 (D1) CSV</label>
-            <input type="file" id="d1In">
-        </div>
-        <div class="file-input-group">
-            <label>2. 1時間足 (H1) CSV</label>
-            <input type="file" id="h1In">
-        </div>
-        <div class="file-input-group">
-            <label>3. Pivot CSV</label>
-            <input type="file" id="pivotIn">
-        </div>
-    </div>
-</header>
-
-<div class="view-controls">
-    <div class="slider-box">
-        <label>表示期間</label>
-        <input type="range" id="zoom" min="1" max="30" value="20">
-        <span id="zoomDisp" style="width:30px;">20日</span>
-    </div>
-    <div class="slider-box">
-        <label>表示位置</label>
-        <input type="range" id="scroll" min="0" max="100" value="100">
-        <span style="width:30px;">最新</span>
-    </div>
-</div>
-
-<div id="log">ログ: 各CSVを読み込んでください。</div>
-
-<div class="chart-container" id="container">
-    <div id="tooltip"></div>
-    <canvas id="mainCanvas"></canvas>
-</div>
-
 <div class="legend">
-    <div class="legend-item"><div class="line-box" style="background:var(--price)"></div>価格</div>
+    <div class="legend-item"><div class="line-box" style="background:rgba(255,255,255,0.3)"></div>生価格</div>
+    <div class="legend-item"><div class="line-box" style="background:#00bcd4"></div>価格10SMA</div>
     <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>日足</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>1時間</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>10SMA</div>
-    <div class="legend-item"><div class="line-box" style="background:#f44336"></div>R1-5</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>H1比率</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>比率10SMA</div>
+    <div class="legend-item"><div class="line-box" style="background:#f44336"></div>Pivot R</div>
     <div class="legend-item"><div class="line-box" style="background:#ffeb3b"></div>PP</div>
-    <div class="legend-item"><div class="line-box" style="background:#2196f3"></div>S1-5</div>
+    <div class="legend-item"><div class="line-box" style="background:#2196f3"></div>Pivot S</div>
 </div>
 
 <script>
@@ -96,7 +20,8 @@
     const scrollSld = document.getElementById('scroll');
     const zoomDisp = document.getElementById('zoomDisp');
 
-    let dataD1 = [], dataH1 = [], dataSMA = [], dataPivot = [];
+    // dataPriceSMAを追加
+    let dataD1 = [], dataH1 = [], dataSMA = [], dataPriceSMA = [], dataPivot = [];
     let mouseX = -1;
     const pad = { top: 20, right: 65, bottom: 30, left: 10, gap: 25 };
 
@@ -152,14 +77,21 @@
         return res.sort((a, b) => a.t - b.t);
     }
 
-    function getSMA(data, n) {
+    // SMA計算関数を汎用化（field引数追加）
+    function getSMA(data, n, field = 'v') {
         const res = [];
-        if (data.length < n) return res;
         for (let i = 0; i < data.length; i++) {
             if (i < n - 1) { res.push({ t: data[i].t, v: NaN }); continue; }
             let sum = 0;
-            for (let j = 0; j < n; j++) sum += data[i - j].v;
-            res.push({ t: data[i].t, v: sum / n });
+            let count = 0;
+            for (let j = 0; j < n; j++) {
+                const val = data[i - j][field];
+                if (val !== null && !isNaN(val)) {
+                    sum += val;
+                    count++;
+                }
+            }
+            res.push({ t: data[i].t, v: count === n ? sum / n : NaN });
         }
         return res;
     }
@@ -172,13 +104,11 @@
         ctx.scale(dpr, dpr);
         const w = rect.width, h = rect.height;
 
-        ctx.fillStyle = "#131722";
-        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
 
         const mainData = dataH1.length > 0 ? dataH1 : dataD1;
         if (mainData.length === 0) return;
 
-        // インデックスベースの範囲計算
         const isH1 = dataH1.length > 0;
         const ptsPerDay = isH1 ? 24 : 1; 
         const viewRange = Math.max(ptsPerDay, parseInt(zoomSld.value) * ptsPerDay);
@@ -193,21 +123,19 @@
         const pTop = pad.top, pBot = splitY;
         const rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
-        // 表示範囲内のスケール計算
         let vList = [], pList = [];
         for (let i = Math.floor(iMin); i <= Math.ceil(iMax); i++) {
             const d = mainData[i];
             if (d.v !== null && !isNaN(d.v)) vList.push(d.v);
             if (isH1 && dataSMA[i] && !isNaN(dataSMA[i].v)) vList.push(dataSMA[i].v);
             if (d.p !== null && !isNaN(d.p)) pList.push(d.p);
+            // 価格SMAもスケール計算に含める
+            if (isH1 && dataPriceSMA[i] && !isNaN(dataPriceSMA[i].v)) pList.push(dataPriceSMA[i].v);
         }
         
-        // 日足（シフト後）もスケールに含める
         dataD1.forEach(d => {
             const tShift = d.t + 86400;
-            if (tShift >= mainData[Math.floor(iMin)].t && tShift <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) {
-                vList.push(d.v);
-            }
+            if (tShift >= mainData[Math.floor(iMin)].t && tShift <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) vList.push(d.v);
         });
 
         if(vList.length === 0) return;
@@ -234,7 +162,7 @@
             }
         }
 
-        // Pivot描画 (H1のインデックスに合わせる)
+        // Pivot描画
         if (isH1) {
             dataPivot.forEach(pv => {
                 const dayStart = pv.t; const dayEnd = pv.t + 86400;
@@ -257,7 +185,6 @@
             });
         }
 
-        // 描画
         const drawMainLine = (dataset, field, color, width, yFunc, dash = []) => {
             ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
             ctx.beginPath();
@@ -272,18 +199,16 @@
             ctx.stroke(); ctx.setLineDash([]);
         };
 
-        // 下段描画
+        // 下段
         if (isH1) {
             drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio);
             drawMainLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]);
         }
-        
-        // 日足シフト描画
+        const shiftD1 = dataD1.map(d => ({ ...d, t: d.t + 86400 }));
         ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.beginPath();
         let d1First = true;
         dataD1.forEach(d => {
             const tShift = d.t + 86400;
-            // H1データの中から、シフト後の時間に最も近いインデックスを探す
             let idx = mainData.findIndex(m => m.t >= tShift);
             if (idx === -1 && tShift >= mainData[maxIdx].t) idx = maxIdx;
             if (idx !== -1 && idx >= iMin - 10 && idx <= iMax + 10) {
@@ -293,10 +218,13 @@
         });
         ctx.stroke();
 
-        // 上段価格
-        drawMainLine(mainData, 'p', "#ffffff", 1.5, getYPrice);
+        // 上段
+        // 生価格（薄く表示）
+        drawMainLine(mainData, 'p', "rgba(255,255,255,0.3)", 1, getYPrice);
+        // 価格10SMA（ハッキリ表示）
+        if (isH1) drawMainLine(dataPriceSMA, 'v', "#00bcd4", 1.5, getYPrice);
 
-        // 時間軸（日付が変わる場所で線を引く）
+        // 時間軸
         ctx.textAlign = "center"; ctx.fillStyle = "#787b86";
         for (let i = Math.floor(iMin); i <= iMax; i++) {
             const d1 = mainData[i]; const d0 = mainData[i-1];
@@ -322,6 +250,7 @@
                 
                 const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: 0};
                 const smaV = dataSMA[iHover] ? dataSMA[iHover].v : NaN;
+                const pSmaV = dataPriceSMA[iHover] ? dataPriceSMA[iHover].v : NaN;
                 
                 tooltip.style.display = "block";
                 tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
@@ -329,8 +258,9 @@
                 tooltip.innerHTML = `
                     <div class="tt-date">${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:00</div>
                     <div class="tt-row"><span>Price:</span><span>${(d.p || 0).toFixed(5)}</span></div>
+                    <div class="tt-row"><span style="color:#00bcd4">Price SMA:</span><span>${isNaN(pSmaV) ? '--' : pSmaV.toFixed(5)}</span></div>
                     <div class="tt-row"><span style="color:var(--orange)">H1 Bias:</span><span>${d.v.toFixed(1)}%</span></div>
-                    <div class="tt-row"><span style="color:var(--green)">10SMA:</span><span>${isNaN(smaV) ? '--' : smaV.toFixed(1)}%</span></div>
+                    <div class="tt-row"><span style="color:var(--green)">Bias SMA:</span><span>${isNaN(smaV) ? '--' : smaV.toFixed(1)}%</span></div>
                     <div class="tt-row"><span style="color:var(--blue)">Daily (S):</span><span>${nearD.v.toFixed(1)}%</span></div>`;
             }
         } else { tooltip.style.display = "none"; }
@@ -343,7 +273,11 @@
             const r = new FileReader();
             r.onload = ev => {
                 if(type === 'pivot') dataPivot = parsePivotCSV(ev.target.result);
-                else if(type === 'h1') { dataH1 = parseCSV(ev.target.result); dataSMA = getSMA(dataH1, 10); }
+                else if(type === 'h1') { 
+                    dataH1 = parseCSV(ev.target.result); 
+                    dataSMA = getSMA(dataH1, 10, 'v'); 
+                    dataPriceSMA = getSMA(dataH1, 10, 'p'); // 価格10SMA計算
+                }
                 else dataD1 = parseCSV(ev.target.result);
                 writeLog(f.name + " 完了"); draw();
             };
@@ -364,9 +298,3 @@
     container.addEventListener('mouseleave', () => { mouseX = -1; draw(); });
     window.onresize = draw; window.onload = draw;
 </script>
-</body>
-</html>
-
-
-
-
