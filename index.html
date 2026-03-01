@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard Pro - Edge Finder</title>
+    <title>FX Strategy Dashboard - Systemized</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; }
@@ -25,6 +25,7 @@
         .legend { display: flex; justify-content: center; gap: 10px; padding: 5px; background: var(--panel); font-size: 9px; border-top: 1px solid #363c4e; flex-wrap: wrap; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
         .line-box { width: 10px; height: 2px; }
+        .signal-tag { padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-left: 10px; }
     </style>
 </head>
 <body>
@@ -49,11 +50,8 @@
     <div class="legend-item"><div class="line-box" style="background:rgba(255,255,255,0.3)"></div>生価格</div>
     <div class="legend-item"><div class="line-box" style="background:var(--cyan)"></div>価格10SMA</div>
     <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>日足</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>H1比率</div>
     <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>比率10SMA</div>
-    <div class="legend-item"><div class="line-box" style="background:#f44336"></div>Pivot R</div>
-    <div class="legend-item"><div class="line-box" style="background:#ffeb3b"></div>PP</div>
-    <div class="legend-item"><div class="line-box" style="background:#2196f3"></div>Pivot S</div>
+    <div class="legend-item"><div class="line-box" style="background:rgba(41,98,255,0.15); height:10px; width:10px;"></div>トレンド一致ゾーン</div>
 </div>
 
 <script>
@@ -143,8 +141,7 @@
         const viewRange = Math.max(ptsPerDay, parseInt(zoomSld.value) * ptsPerDay);
         zoomDisp.innerText = zoomSld.value + "日";
         const maxIdx = mainData.length - 1;
-        const scrollStart = (maxIdx - viewRange) * (parseInt(scrollSld.value) / 100);
-        const iMin = Math.max(0, scrollStart);
+        const iMin = Math.max(0, (maxIdx - viewRange) * (parseInt(scrollSld.value) / 100));
         const iMax = Math.min(maxIdx, iMin + viewRange);
 
         const splitY = h * 0.45, pTop = pad.top, pBot = splitY, rTop = splitY + pad.gap, rBot = h - pad.bottom;
@@ -157,10 +154,7 @@
             if (d.p !== null && !isNaN(d.p)) pList.push(d.p);
             if (isH1 && dataPriceSMA[i] && !isNaN(dataPriceSMA[i].v)) pList.push(dataPriceSMA[i].v);
         }
-        dataD1.forEach(d => {
-            const tShift = d.t + 86400;
-            if (tShift >= mainData[Math.floor(iMin)].t && tShift <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) vList.push(d.v);
-        });
+        dataD1.forEach(d => { if (d.t + 86400 >= mainData[Math.floor(iMin)].t && d.t + 86400 <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) vList.push(d.v); });
 
         if(vList.length === 0) return;
         const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
@@ -171,6 +165,30 @@
         const getX = (idx) => pad.left + (idx - iMin) / (iMax - iMin) * (w - pad.left - pad.right);
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
+
+        // --- ロジック計算と背景ハイライト ---
+        for (let i = Math.floor(iMin); i <= iMax; i++) {
+            if (i < 1) continue;
+            const d = mainData[i];
+            const dPrev = mainData[i-1];
+            const sma = dataSMA[i];
+            const smaPrev = dataSMA[i-1];
+            const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200);
+            const nearDPrev = dataD1.find(dd => Math.abs((dd.t + 86400) - dPrev.t) < 43200);
+
+            if (nearD && nearDPrev && sma && smaPrev) {
+                const dailyDir = nearD.v - nearDPrev.v; // 日足の方向
+                const h1SmaDir = sma.v - smaPrev.v;     // 比率10SMAの方向
+                
+                // 1. 日足と比率SMAの方向が一致 (トレンド一致ゾーン)
+                if ((dailyDir > 0 && h1SmaDir > 0) || (dailyDir < 0 && h1SmaDir < 0)) {
+                    ctx.fillStyle = dailyDir > 0 ? "rgba(41,98,255,0.08)" : "rgba(244,67,54,0.08)";
+                    const xStart = getX(i);
+                    const xEnd = getX(i+1);
+                    ctx.fillRect(xStart, pad.top, xEnd - xStart, rBot - pad.top);
+                }
+            }
+        }
 
         // グリッド
         ctx.lineWidth = 1; ctx.font = "9px sans-serif"; ctx.textAlign = "right"; ctx.strokeStyle = "#2b2b43"; ctx.fillStyle = "#787b86";
@@ -200,6 +218,14 @@
                         const y = getYPrice(val); if (y < pTop || y > pBot) return;
                         ctx.strokeStyle = k === 'PP' ? "rgba(255, 235, 59, 0.5)" : (k.startsWith('R') ? "rgba(244, 67, 54, 0.4)" : "rgba(33, 150, 243, 0.4)");
                         ctx.lineWidth = k === 'PP' ? 1.5 : 1; ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+                        
+                        // Pivotタッチ判定
+                        for (let j = sIdx; j <= eIdx; j++) {
+                            if (j < iMin || j > iMax) continue;
+                            if (mainData[j].p && Math.abs(mainData[j].p - val) < pR * 0.005) {
+                                ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(getX(j), y, 3, 0, Math.PI*2); ctx.fill();
+                            }
+                        }
                     });
                 }
             });
@@ -217,6 +243,7 @@
         };
 
         if (isH1) { drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio); drawMainLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]); }
+        
         ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.beginPath();
         let d1F = true;
         dataD1.forEach(d => {
@@ -230,7 +257,25 @@
         ctx.stroke();
 
         drawMainLine(mainData, 'p', "rgba(255,255,255,0.3)", 1, getYPrice);
-        if (isH1) drawMainLine(dataPriceSMA, 'v', "#00bcd4", 1.5, getYPrice);
+        if (isH1) {
+            drawMainLine(dataPriceSMA, 'v', "#00bcd4", 1.5, getYPrice);
+            
+            // 逆相関シグナル表示
+            for (let i = Math.floor(iMin)+1; i <= iMax; i++) {
+                const psma = dataPriceSMA[i]; const psmaPrev = dataPriceSMA[i-1];
+                const bsma = dataSMA[i]; const bsmaPrev = dataSMA[i-1];
+                if (!psma || !psmaPrev || !bsma || !bsmaPrev) continue;
+                
+                const pDir = psma.v - psmaPrev.v; // 価格10SMAの向き
+                const bDir = bsma.v - bsmaPrev.v; // 比率10SMAの向き
+                
+                // 3. 価格10SMAが比率と逆方向に動いている (逆相関 = エントリー検討)
+                if ((bDir > 0 && pDir < 0) || (bDir < 0 && pDir > 0)) {
+                    ctx.fillStyle = "#fff"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+                    ctx.fillText(bDir > 0 ? "▲" : "▼", getX(i), pad.top + 5);
+                }
+            }
+        }
 
         ctx.textAlign = "center"; ctx.fillStyle = "#787b86";
         for (let i = Math.floor(iMin); i <= iMax; i++) {
@@ -250,15 +295,12 @@
                 const x = getX(iH); ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
                 ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
                 const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: 0};
-                const smaV = dataSMA[iH] ? dataSMA[iH].v : NaN, pSmaV = dataPriceSMA[iH] ? dataPriceSMA[iH].v : NaN;
                 tooltip.style.display = "block"; tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
                 const dt = new Date(d.t * 1000);
                 tooltip.innerHTML = `<div class="tt-date">${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:00</div>
                     <div class="tt-row"><span>Price:</span><span>${(d.p || 0).toFixed(5)}</span></div>
-                    <div class="tt-row"><span style="color:var(--cyan)">Price SMA:</span><span>${isNaN(pSmaV) ? '--' : pSmaV.toFixed(5)}</span></div>
-                    <div class="tt-row"><span style="color:var(--orange)">H1 Bias:</span><span>${d.v.toFixed(1)}%</span></div>
-                    <div class="tt-row"><span style="color:var(--green)">Bias SMA:</span><span>${isNaN(smaV) ? '--' : smaV.toFixed(1)}%</span></div>
-                    <div class="tt-row"><span style="color:var(--blue)">Daily (S):</span><span>${nearD.v.toFixed(1)}%</span></div>`;
+                    <div class="tt-row"><span style="color:var(--cyan)">Price SMA:</span><span>${(dataPriceSMA[iH]?.v || 0).toFixed(5)}</span></div>
+                    <div class="tt-row"><span style="color:var(--green)">Bias SMA:</span><span>${(dataSMA[iH]?.v || 0).toFixed(1)}%</span></div>`;
             }
         } else tooltip.style.display = "none";
     }
