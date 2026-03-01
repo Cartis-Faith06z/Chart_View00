@@ -121,15 +121,10 @@
         for (let i = 1; i < lines.length; i++) {
             const c = lines[i].split(',');
             if (c.length < 3) continue;
-            
             const t = parseCSVDate(c[0]);
             if (t === null) continue;
-
-            // 数値変換（N/Aや空白はNaNになる）
             const vRaw = parseFloat(c[2]);
             const pRaw = c[3] ? parseFloat(c[3]) : NaN;
-
-            // 少なくとも強弱値(v)が有効な数値である場合のみリストに追加
             if (!isNaN(vRaw)) {
                 res.push({ t, v: vRaw, p: isNaN(pRaw) ? null : pRaw });
             }
@@ -161,7 +156,7 @@
         const res = [];
         if (data.length < n) return res;
         for (let i = 0; i < data.length; i++) {
-            if (i < n - 1) continue;
+            if (i < n - 1) { res.push({ t: data[i].t, v: NaN }); continue; }
             let sum = 0;
             for (let j = 0; j < n; j++) sum += data[i - j].v;
             res.push({ t: data[i].t, v: sum / n });
@@ -180,34 +175,38 @@
         ctx.fillStyle = "#131722";
         ctx.fillRect(0, 0, w, h);
 
-        const hasH1 = dataH1.length > 0;
-        const hasD1 = dataD1.length > 0;
-        if (!hasH1 && !hasD1) return;
+        const mainData = dataH1.length > 0 ? dataH1 : dataD1;
+        if (mainData.length === 0) return;
 
-        const baseData = hasH1 ? dataH1 : dataD1;
-        const totalDur = baseData[baseData.length-1].t - baseData[0].t;
-        const viewDur = parseInt(zoomSld.value) * 86400;
+        // インデックスベースの範囲計算
+        const isH1 = dataH1.length > 0;
+        const ptsPerDay = isH1 ? 24 : 1; 
+        const viewRange = Math.max(ptsPerDay, parseInt(zoomSld.value) * ptsPerDay);
         zoomDisp.innerText = zoomSld.value + "日";
-        
-        const scrollOffset = (totalDur - viewDur) * (parseInt(scrollSld.value) / 100);
-        const vMin = baseData[0].t + scrollOffset;
-        const vMax = vMin + viewDur;
+
+        const maxIdx = mainData.length - 1;
+        const scrollStart = (maxIdx - viewRange) * (parseInt(scrollSld.value) / 100);
+        const iMin = Math.max(0, scrollStart);
+        const iMax = Math.min(maxIdx, iMin + viewRange);
 
         const splitY = h * 0.45;
         const pTop = pad.top, pBot = splitY;
         const rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
+        // 表示範囲内のスケール計算
         let vList = [], pList = [];
-        [dataH1, dataD1, dataSMA].forEach(ds => ds.forEach(d => {
-            if(d.t >= vMin && d.t <= vMax) {
-                if(d.v !== undefined && d.v !== null && !isNaN(d.v)) vList.push(d.v);
-            }
-        }));
-
-        // 価格(p)はH1のデータのみから取得（D1の価格は無視）
-        dataH1.forEach(d => {
-            if(d.t >= vMin && d.t <= vMax) {
-                if(d.p !== undefined && d.p !== null && !isNaN(d.p)) pList.push(d.p);
+        for (let i = Math.floor(iMin); i <= Math.ceil(iMax); i++) {
+            const d = mainData[i];
+            if (d.v !== null && !isNaN(d.v)) vList.push(d.v);
+            if (isH1 && dataSMA[i] && !isNaN(dataSMA[i].v)) vList.push(dataSMA[i].v);
+            if (d.p !== null && !isNaN(d.p)) pList.push(d.p);
+        }
+        
+        // 日足（シフト後）もスケールに含める
+        dataD1.forEach(d => {
+            const tShift = d.t + 86400;
+            if (tShift >= mainData[Math.floor(iMin)].t && tShift <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) {
+                vList.push(d.v);
             }
         });
 
@@ -217,7 +216,7 @@
         const pHi = pList.length > 0 ? Math.max(...pList) * 1.0005 : 1;
         const pR = pHi - pLo || 0.001;
 
-        const getX = (t) => pad.left + (t - vMin) / (vMax - vMin) * (w - pad.left - pad.right);
+        const getX = (idx) => pad.left + (idx - iMin) / (iMax - iMin) * (w - pad.left - pad.right);
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
@@ -235,100 +234,105 @@
             }
         }
 
-        // Pivot描画
-        dataPivot.forEach(d => {
-            const tStart = d.t; const tEnd = d.t + 86400;
-            if (tEnd < vMin || tStart > vMax) return;
-            const x1 = Math.max(getX(tStart), pad.left);
-            const x2 = Math.min(getX(tEnd), w - pad.right);
-            if (x2 <= x1) return;
-            Object.entries(d.levels).forEach(([key, val]) => {
-                if (isNaN(val)) return;
-                const y = getYPrice(val);
-                if (y < pTop || y > pBot) return; // 画面外は描画しない
-                let color = "#444";
-                if (key.startsWith('R')) color = "rgba(244, 67, 54, 0.4)";
-                else if (key.startsWith('S')) color = "rgba(33, 150, 243, 0.4)";
-                else if (key === 'PP') color = "rgba(255, 235, 59, 0.5)";
-                ctx.strokeStyle = color; ctx.lineWidth = key === 'PP' ? 1.5 : 1;
-                ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
-                if (x2 > w - pad.right - 10) { ctx.fillStyle = color; ctx.textAlign = "left"; ctx.fillText(key, x2 + 2, y + 3); }
+        // Pivot描画 (H1のインデックスに合わせる)
+        if (isH1) {
+            dataPivot.forEach(pv => {
+                const dayStart = pv.t; const dayEnd = pv.t + 86400;
+                let startIdx = -1, endIdx = -1;
+                for(let i=0; i<mainData.length; i++) {
+                    if (mainData[i].t >= dayStart && startIdx === -1) startIdx = i;
+                    if (mainData[i].t < dayEnd) endIdx = i;
+                }
+                if (startIdx !== -1 && endIdx !== -1 && startIdx <= iMax && endIdx >= iMin) {
+                    const x1 = Math.max(getX(startIdx), pad.left);
+                    const x2 = Math.min(getX(endIdx + 1), w - pad.right);
+                    Object.entries(pv.levels).forEach(([key, val]) => {
+                        const y = getYPrice(val);
+                        if (y < pTop || y > pBot) return;
+                        ctx.strokeStyle = key === 'PP' ? "rgba(255, 235, 59, 0.5)" : (key.startsWith('R') ? "rgba(244, 67, 54, 0.4)" : "rgba(33, 150, 243, 0.4)");
+                        ctx.lineWidth = key === 'PP' ? 1.5 : 1;
+                        ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+                    });
+                }
             });
-        });
-
-        // 描画
-        function plotLine(dataset, field, color, width, yFunc, dash = []) {
-            // 有効な数値(null/NaNでない)を持つデータのみを抽出
-            const pts = dataset.filter(d => d.t >= vMin && d.t <= vMax && d[field] !== null && !isNaN(d[field]));
-            if (pts.length < 2) return;
-            ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
-            ctx.beginPath();
-            pts.forEach((pt, i) => {
-                const x = getX(pt.t), y = yFunc(pt[field]);
-                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            });
-            ctx.stroke(); ctx.setLineDash([]);
         }
 
-     // 下段: 1時間足 強弱
-        plotLine(dataH1, 'v', "#ff9800", 1, getYRatio);
-        
-        // 下段: 10SMA (1時間足ベース)
-        plotLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]);
-
-        // --- 下段: 日足 強弱（1日シフトして当日分まで描画） ---
-        // 最新のデータまで含めるため、マッピング後にソートを確認
-        const shiftD1 = dataD1.map(d => ({ ...d, t: d.t + 86400 }));
-        
-        // 日足は線が太いので、範囲の終点を少し広げて判定
-        const plotD1 = (dataset, color) => {
-            const pts = dataset.filter(d => d.t >= vMin && d.t <= vMax + 86400 && d.v !== null && !isNaN(d.v));
-            if (pts.length < 2) return;
-            ctx.strokeStyle = color; ctx.lineWidth = 3;
+        // 描画
+        const drawMainLine = (dataset, field, color, width, yFunc, dash = []) => {
+            ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
             ctx.beginPath();
-            pts.forEach((pt, i) => {
-                const x = getX(pt.t);
-                const y = getYRatio(pt.v);
-                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            });
-            ctx.stroke();
+            let first = true;
+            for (let i = Math.floor(iMin); i <= Math.ceil(iMax); i++) {
+                if (i < 0 || i >= dataset.length) continue;
+                const d = dataset[i];
+                if (d[field] === null || isNaN(d[field])) continue;
+                const x = getX(i); const y = yFunc(d[field]);
+                if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+            }
+            ctx.stroke(); ctx.setLineDash([]);
         };
-        plotD1(shiftD1, "#2962ff");
-              
-        // 上段: 価格 (H1のデータのみを使用)
-        plotLine(dataH1, 'p', "#ffffff", 1.5, getYPrice);
 
-        // 時間軸
+        // 下段描画
+        if (isH1) {
+            drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio);
+            drawMainLine(dataSMA, 'v', "#4caf50", 1.2, getYRatio, [4, 4]);
+        }
+        
+        // 日足シフト描画
+        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.beginPath();
+        let d1First = true;
+        dataD1.forEach(d => {
+            const tShift = d.t + 86400;
+            // H1データの中から、シフト後の時間に最も近いインデックスを探す
+            let idx = mainData.findIndex(m => m.t >= tShift);
+            if (idx === -1 && tShift >= mainData[maxIdx].t) idx = maxIdx;
+            if (idx !== -1 && idx >= iMin - 10 && idx <= iMax + 10) {
+                const x = getX(idx); const y = getYRatio(d.v);
+                if (d1First) { ctx.moveTo(x, y); d1First = false; } else { ctx.lineTo(x, y); }
+            }
+        });
+        ctx.stroke();
+
+        // 上段価格
+        drawMainLine(mainData, 'p', "#ffffff", 1.5, getYPrice);
+
+        // 時間軸（日付が変わる場所で線を引く）
         ctx.textAlign = "center"; ctx.fillStyle = "#787b86";
-        for (let t = Math.floor(vMin/86400)*86400; t <= vMax; t += 86400) {
-            const x = getX(t);
-            if (x >= pad.left && x <= w - pad.right) {
-                const dt = new Date(t * 1000);
-                ctx.strokeStyle = "#363c4e";
-                ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
-                ctx.fillText((dt.getMonth()+1)+"/"+dt.getDate(), x, h - 10);
+        for (let i = Math.floor(iMin); i <= iMax; i++) {
+            const d1 = mainData[i]; const d0 = mainData[i-1];
+            if (!d0 || new Date(d1.t * 1000).getDate() !== new Date(d0.t * 1000).getDate()) {
+                const x = getX(i);
+                if (x >= pad.left && x <= w - pad.right) {
+                    ctx.strokeStyle = "#363c4e";
+                    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
+                    const dt = new Date(d1.t * 1000);
+                    ctx.fillText((dt.getMonth()+1)+"/"+dt.getDate(), x, h - 10);
+                }
             }
         }
 
         // ツールチップ
         if (mouseX > pad.left && mouseX < w - pad.right) {
-            const hTs = vMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (vMax - vMin);
-            const nearH = dataH1.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, dataH1[0] || {t:0, v:0, p:0});
-            const nearD = dataD1.find(d => Math.abs((d.t + 86400) - nearH.t) < 43200) || {v: 0};
-            const nearS = dataSMA.reduce((p, c) => Math.abs(c.t - hTs) < Math.abs(p.t - hTs) ? c : p, {v: 0});
-            const x = getX(nearH.t);
-            ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
-            ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
-            
-            tooltip.style.display = "block";
-            tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
-            const d = new Date(nearH.t * 1000);
-            tooltip.innerHTML = `
-                <div class="tt-date">${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:00</div>
-                <div class="tt-row"><span>Price:</span><span>${(nearH.p || 0).toFixed(5)}</span></div>
-                <div class="tt-row"><span style="color:var(--orange)">H1 Bias:</span><span>${nearH.v.toFixed(1)}%</span></div>
-                <div class="tt-row"><span style="color:var(--green)">10SMA:</span><span>${nearS.v.toFixed(1)}%</span></div>
-                <div class="tt-row"><span style="color:var(--blue)">Daily (S):</span><span>${nearD.v.toFixed(1)}%</span></div>`;
+            const iHover = Math.round(iMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (iMax - iMin));
+            const d = mainData[Math.min(maxIdx, Math.max(0, iHover))];
+            if (d) {
+                const x = getX(iHover);
+                ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
+                ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
+                
+                const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: 0};
+                const smaV = dataSMA[iHover] ? dataSMA[iHover].v : NaN;
+                
+                tooltip.style.display = "block";
+                tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
+                const dt = new Date(d.t * 1000);
+                tooltip.innerHTML = `
+                    <div class="tt-date">${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:00</div>
+                    <div class="tt-row"><span>Price:</span><span>${(d.p || 0).toFixed(5)}</span></div>
+                    <div class="tt-row"><span style="color:var(--orange)">H1 Bias:</span><span>${d.v.toFixed(1)}%</span></div>
+                    <div class="tt-row"><span style="color:var(--green)">10SMA:</span><span>${isNaN(smaV) ? '--' : smaV.toFixed(1)}%</span></div>
+                    <div class="tt-row"><span style="color:var(--blue)">Daily (S):</span><span>${nearD.v.toFixed(1)}%</span></div>`;
+            }
         } else { tooltip.style.display = "none"; }
     }
 
@@ -341,8 +345,7 @@
                 if(type === 'pivot') dataPivot = parsePivotCSV(ev.target.result);
                 else if(type === 'h1') { dataH1 = parseCSV(ev.target.result); dataSMA = getSMA(dataH1, 10); }
                 else dataD1 = parseCSV(ev.target.result);
-                writeLog(f.name + " 完了");
-                draw();
+                writeLog(f.name + " 完了"); draw();
             };
             r.readAsText(f);
         });
@@ -363,6 +366,7 @@
 </script>
 </body>
 </html>
+
 
 
 
