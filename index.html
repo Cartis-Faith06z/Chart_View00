@@ -170,11 +170,11 @@
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
         // グリッド
-        ctx.lineWidth = 1; ctx.strokeStyle = "#2b2b43"; ctx.textAlign = \"right\"; ctx.fillStyle = \"#787b86\"; ctx.font = \"9px sans-serif\";
+        ctx.lineWidth = 1; ctx.strokeStyle = "#2b2b43"; ctx.textAlign = "right"; ctx.fillStyle = "#787b86"; ctx.font = "9px sans-serif";
         for (let i = 0; i <= 4; i++) {
             const vy = getYRatio(vLo + (vR * i / 4));
             ctx.beginPath(); ctx.moveTo(pad.left, vy); ctx.lineTo(w - pad.right, vy); ctx.stroke();
-            ctx.fillText((vLo + (vR * i / 4)).toFixed(1) + \"%\", w - 5, vy + 3);
+            ctx.fillText((vLo + (vR * i / 4)).toFixed(1) + "%", w - 5, vy + 3);
             if (pList.length > 0) {
                 const py = getYPrice(pLo + (pR * i / 4));
                 ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(w - pad.right, py); ctx.stroke();
@@ -195,7 +195,7 @@
                     Object.entries(pv.levels).forEach(([k, val]) => {
                         const y = getYPrice(val);
                         if (y < pTop || y > pBot) return;
-                        ctx.strokeStyle = k === 'PP' ? \"rgba(255, 235, 59, 0.4)\" : \"rgba(255, 255, 255, 0.15)\";
+                        ctx.strokeStyle = k === 'PP' ? "rgba(255, 235, 59, 0.4)" : "rgba(255, 255, 255, 0.15)";
                         ctx.beginPath(); ctx.moveTo(getX(sIdx), y); ctx.lineTo(getX(eIdx+1), y); ctx.stroke();
                     });
                 }
@@ -215,12 +215,12 @@
 
         // 線描写 (H1)
         if (isH1) {
-            drawMainLine(dataH1, 'v', \"#ff9800\", 1, getYRatio);
-            drawMainLine(dataSMA, 'v', \"#4caf50\", 1.5, getYRatio, [4, 4]);
+            drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio);
+            drawMainLine(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
         }
         
         // 日足比率 (青太線)
-        ctx.strokeStyle = \"#2962ff\"; ctx.lineWidth = 3; ctx.beginPath();
+        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.beginPath();
         let lastX = -1, lastV = -1;
         dataD1.forEach(d => {
             const tS = d.t + 86400;
@@ -236,7 +236,7 @@
         ctx.stroke();
 
         // 日足2SMA (青破線)
-        ctx.strokeStyle = \"#2962ff\"; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.beginPath();
+        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.beginPath();
         let lastSX = -1, lastSV = -1;
         dataD1SMA.forEach(d => {
             if (isNaN(d.v)) return;
@@ -254,17 +254,17 @@
         ctx.setLineDash([]);
 
         // 価格ライン
-        drawMainLine(mainData, 'p', \"rgba(255,255,255,0.3)\", 1, getYPrice);
-        if (isH1) drawMainLine(dataPriceSMA, 'v', \"#00bcd4\", 2, getYPrice);
+        drawMainLine(mainData, 'p', "rgba(255,255,255,0.3)", 1, getYPrice);
+        if (isH1) drawMainLine(dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
 
         // 日付ラベル
-        ctx.textAlign = \"center\"; ctx.fillStyle = \"#787b86\";
+        ctx.textAlign = "center"; ctx.fillStyle = "#787b86";
         for (let i = Math.floor(iMin); i <= iMax; i++) {
             const d1 = mainData[i], d0 = mainData[i-1];
             if (!d0 || new Date(d1.t * 1000).getDate() !== new Date(d0.t * 1000).getDate()) {
                 const x = getX(i); if (x >= pad.left && x <= w - pad.right) {
-                    ctx.strokeStyle = \"#363c4e\"; ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
-                    const dt = new Date(d1.t * 1000); ctx.fillText((dt.getMonth()+1)+\"/\"+dt.getDate(), x, h - 10);
+                    ctx.strokeStyle = "#363c4e"; ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
+                    const dt = new Date(d1.t * 1000); ctx.fillText((dt.getMonth()+1)+"/"+dt.getDate(), x, h - 10);
                 }
             }
         }
@@ -274,24 +274,24 @@
             const iH = Math.round(iMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (iMax - iMin));
             const d = mainData[Math.min(maxIdx, Math.max(0, iH))];
             if (d) {
-                const x = getX(iH); ctx.strokeStyle = \"rgba(255,255,255,0.4)\"; ctx.setLineDash([4, 4]);
+                const x = getX(iH); ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
                 ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
-                tooltip.style.display = \"block\"; tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + \"px\"; tooltip.style.top = \"100px\";
+                tooltip.style.display = "block"; tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
                 const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: 0};
                 const nearDSMA = dataD1SMA.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: NaN};
-                tooltip.innerHTML = `<div class=\"tt-date\">${new Date(d.t*1000).toLocaleString()}</div>
-                    <div class=\"tt-row\"><span>Price:</span><span>${(d.p || 0).toFixed(5)}</span></div>
-                    <div class=\"tt-row\"><span style=\"color:var(--cyan)\">Price SMA:</span><span>${(dataPriceSMA[iH]?.v || 0).toFixed(5)}</span></div>
-                    <div class=\"tt-row\"><span style=\"color:var(--blue)\">Daily Bias:</span><span>${nearD.v.toFixed(1)}%</span></div>
-                    <div class=\"tt-row\"><span style=\"color:var(--blue)\">Daily 2SMA:</span><span>${isNaN(nearDSMA.v) ? '--' : nearDSMA.v.toFixed(1)}%</span></div>`;
+                tooltip.innerHTML = `<div class="tt-date">${new Date(d.t*1000).toLocaleString()}</div>
+                    <div class="tt-row"><span>Price:</span><span>${(d.p || 0).toFixed(5)}</span></div>
+                    <div class="tt-row"><span style="color:var(--cyan)">Price SMA:</span><span>${(dataPriceSMA[iH]?.v || 0).toFixed(5)}</span></div>
+                    <div class="tt-row"><span style="color:var(--blue)">Daily Bias:</span><span>${nearD.v.toFixed(1)}%</span></div>
+                    <div class="tt-row"><span style="color:var(--blue)">Daily 2SMA:</span><span>${isNaN(nearDSMA.v) ? '--' : nearDSMA.v.toFixed(1)}%</span></div>`;
             }
-        } else tooltip.style.display = \"none\";
+        } else tooltip.style.display = "none";
     }
 
     function initIn(id, type) {
         document.getElementById(id).addEventListener('change', e => {
             const f = e.target.files[0]; if(!f) return;
-            writeLog(f.name + \" 読込中...\");
+            writeLog(f.name + " 読込中...");
             const r = new FileReader();
             r.onload = ev => {
                 if(type === 'pivot') dataPivot = parsePivotCSV(ev.target.result);
@@ -302,9 +302,9 @@
                 }
                 else {
                     dataD1 = parseCSV(ev.target.result);
-                    dataD1SMA = getSMA(dataD1, 2, 'v'); // 日足2SMAに修正
+                    dataD1SMA = getSMA(dataD1, 2, 'v'); 
                 }
-                writeLog(f.name + \" 完了\"); draw();
+                writeLog(f.name + " 完了"); draw();
             };
             r.readAsText(f);
         });
