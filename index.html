@@ -215,18 +215,31 @@
             drawMainLine(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
         }
         
-        // 日足比率 (青太線)
-        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.beginPath();
-        let d1F = true;
-        dataD1.forEach(d => {
-            const tS = d.t + 86400;
-            let idx = mainData.findIndex(m => m.t >= tS);
-            if (idx === -1 && tS >= mainData[maxIdx].t) idx = maxIdx;
-            if (idx !== -1 && idx >= iMin - 5 && idx <= iMax + 5) {
-                const x = getX(idx), y = getYRatio(d.v);
-                if (d1F) { ctx.moveTo(x, y); d1F = false; } else { ctx.lineTo(x, y); }
+        // --- 下段: 日足比率 (青太線) のリアルタイム投影 ---
+        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.setLineDash([]); ctx.beginPath();
+        let lastX = -1;
+        let lastV = -1;
+
+        dataD1.forEach((d, idx) => {
+            const tS = d.t + 86400; // 前日分を今日にシフト
+            let i = mainData.findIndex(m => m.t >= tS);
+            
+            // データが見つからない場合、チャートの末尾付近であれば末尾に固定
+            if (i === -1 && tS >= mainData[maxIdx].t) i = maxIdx;
+            
+            if (i !== -1) {
+                const x = getX(i); 
+                const y = getYRatio(d.v);
+                if (lastX === -1) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                lastX = x;
+                lastV = d.v;
             }
         });
+
+        // ★重要：最新の値をチャートの右端（最新時間足の位置）まで延長する
+        if (lastX !== -1 && lastX < getX(maxIdx)) {
+            ctx.lineTo(getX(maxIdx), getYRatio(lastV));
+        }
         ctx.stroke();
 
         // 価格ライン
@@ -291,3 +304,4 @@
 </script>
 </body>
 </html>
+
