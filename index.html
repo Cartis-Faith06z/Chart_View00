@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>FX Dashboard - Daily 2SMA Edition</title>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; }
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; --pivot: #666; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; display: flex; flex-direction: column; height: 100vh; }
         header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; }
         .file-controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
@@ -13,16 +13,18 @@
         .file-input-group label { display: block; font-size: 10px; color: var(--blue); font-weight: bold; margin-bottom: 3px; }
         input[type="file"] { font-size: 11px; width: 100%; color: #aaa; }
         
-        /* チャートコンテナ：上下の要素を除いた残りの高さ */
         .chart-container { position: relative; flex-grow: 1; background: var(--bg); overflow: hidden; }
         canvas { width: 100%; height: 100%; }
         
-        /* スライダーを画面下部に配置 */
         .view-controls { background: #1e222d; padding: 10px; border-top: 1px solid #333; font-size: 11px; flex-shrink: 0; }
-        .slider-box { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+        .slider-box { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
         .slider-box label { width: 60px; }
         input[type="range"] { flex: 1; accent-color: var(--blue); }
         
+        /* Pivot切り替え用のスタイル */
+        .toggle-box { display: flex; align-items: center; gap: 10px; padding-top: 5px; border-top: 1px solid #333; margin-top: 5px; }
+        .toggle-box input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+
         #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 2px 10px; height: 18px; overflow: hidden; flex-shrink: 0; }
         #tooltip { position: absolute; background: rgba(30, 34, 45, 0.95); border: 1px solid #485c7b; padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; min-width: 140px; }
         .tt-date { color: #fff; border-bottom: 1px solid #444; margin-bottom: 4px; font-weight: bold; }
@@ -51,8 +53,12 @@
 </div>
 
 <div class="view-controls">
-    <div class="slider-box"><label>表示期間</label><input type="range" id="zoom" min="1" max="30" value="20"><span id="zoomDisp">20日</span></div>
+    <div class="slider-box"><label>表示期間</label><input type="range" id="zoom" min="1" max="100" value="20"><span id="zoomDisp">20日</span></div>
     <div class="slider-box"><label>表示位置</label><input type="range" id="scroll" min="0" max="100" value="100"><span>最新</span></div>
+    <div class="toggle-box">
+        <input type="checkbox" id="showPivot">
+        <label for="showPivot" style="font-weight: bold; color: var(--text);">Pivotを表示する</label>
+    </div>
 </div>
 
 <div class="legend">
@@ -73,6 +79,7 @@
     const zoomSld = document.getElementById('zoom');
     const scrollSld = document.getElementById('scroll');
     const zoomDisp = document.getElementById('zoomDisp');
+    const showPivotChk = document.getElementById('showPivot');
 
     let dataD1 = [], dataD1SMA = [], dataH1 = [], dataSMA = [], dataPriceSMA = [], dataPivot = [];
     let mouseX = -1;
@@ -166,7 +173,7 @@
         }
         dataD1.forEach(d => {
             const tS = d.t + 86400;
-            if (tS >= mainData[Math.floor(iMin)].t && tS <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) vList.push(d.v);
+            if (mainData[Math.floor(iMin)] && tS >= mainData[Math.floor(iMin)].t && tS <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) vList.push(d.v);
         });
 
         if(vList.length === 0) return;
@@ -179,7 +186,7 @@
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-        // グリッド
+        // グリッド描画
         ctx.lineWidth = 1; ctx.strokeStyle = "#2b2b43"; ctx.textAlign = "right"; ctx.fillStyle = "#787b86"; ctx.font = "9px sans-serif";
         for (let i = 0; i <= 4; i++) {
             const vy = getYRatio(vLo + (vR * i / 4));
@@ -189,6 +196,25 @@
                 const py = getYPrice(pLo + (pR * i / 4));
                 ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(w - pad.right, py); ctx.stroke();
                 ctx.fillText((pLo + (pR * i / 4)).toFixed(5), w - 5, py + 3);
+            }
+        }
+
+        // Pivot描画（チェックが入っている場合のみ）
+        if (showPivotChk.checked && dataPivot.length > 0) {
+            ctx.lineWidth = 1;
+            for (let i = Math.floor(iMin); i <= Math.ceil(iMax); i++) {
+                const dH = mainData[i];
+                const pvt = dataPivot.find(p => p.t <= dH.t && p.t + 86400 > dH.t);
+                if (pvt) {
+                    const x = getX(i);
+                    Object.entries(pvt.levels).forEach(([lvl, val]) => {
+                        const py = getYPrice(val);
+                        if (py >= pTop && py <= pBot) {
+                            ctx.fillStyle = lvl === 'PP' ? "#aaa" : (lvl.startsWith('R') ? "rgba(255,0,0,0.2)" : "rgba(0,255,0,0.2)");
+                            ctx.fillRect(x, py, (w - pad.left - pad.right) / (iMax - iMin), 1);
+                        }
+                    });
+                }
             }
         }
 
@@ -243,14 +269,13 @@
         drawMainLine(mainData, 'p', "rgba(255,255,255,0.3)", 1, getYPrice);
         if (isH1) drawMainLine(dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
 
-        // ツールチップ修正点
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const iH = Math.round(iMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (iMax - iMin));
             const d = mainData[Math.min(maxIdx, Math.max(0, iH))];
             if (d) {
                 const x = getX(iH); ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
                 ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
-                tooltip.style.display = "block"; tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "50px";
+                tooltip.style.display = "block"; tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
                 
                 const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: 0};
                 const nearDSMA = dataD1SMA.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: NaN};
@@ -288,6 +313,8 @@
 
     initIn('d1In', 'd1'); initIn('h1In', 'h1'); initIn('pivotIn', 'pivot');
     zoomSld.oninput = draw; scrollSld.oninput = draw;
+    showPivotChk.onchange = draw; // チェックボックス切り替えで再描画
+    
     const handleMove = e => {
         const r = canvas.getBoundingClientRect(); const cx = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
         if(cx === -1) return; mouseX = cx - r.left; draw();
