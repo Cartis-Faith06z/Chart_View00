@@ -3,30 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard - Trend Projection</title>
+    <title>FX Dashboard - Mobile Optimized</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; }
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; display: flex; flex-direction: column; height: 100vh; }
-        header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; }
-        .file-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .file-input-group { background: #2a2e39; border: 1px solid #444; padding: 5px; border-radius: 4px; }
-        .file-input-group label { display: block; font-size: 10px; color: var(--cyan); font-weight: bold; margin-bottom: 3px; }
-        input[type="file"] { font-size: 11px; width: 100%; color: #aaa; }
+        
+        /* 100dvhを使用してアドレスバーとの被りを防止 */
+        body { 
+            margin: 0; 
+            background: var(--bg); 
+            color: var(--text); 
+            font-family: -apple-system, sans-serif; 
+            overflow: hidden; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+            height: 100dvh; 
+        }
+
+        header { padding: 8px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; }
+        .file-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .file-input-group { background: #2a2e39; border: 1px solid #444; padding: 4px; border-radius: 4px; }
+        .file-input-group label { display: block; font-size: 10px; color: var(--cyan); font-weight: bold; margin-bottom: 2px; }
+        input[type="file"] { font-size: 10px; width: 100%; color: #aaa; }
         
         .chart-container { position: relative; flex-grow: 1; background: var(--bg); overflow: hidden; }
         canvas { width: 100%; height: 100%; }
         
-        .view-controls { background: #1e222d; padding: 10px; border-top: 1px solid #333; font-size: 11px; flex-shrink: 0; }
-        .slider-box { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-        .slider-box label { width: 60px; }
-        input[type="range"] { flex: 1; accent-color: var(--blue); }
+        /* 操作パネルの改善 */
+        .view-controls { 
+            background: #1e222d; 
+            padding: 12px 12px 24px 12px; /* 下部に余裕を持たせる */
+            border-top: 1px solid #333; 
+            font-size: 11px; 
+            flex-shrink: 0; 
+            z-index: 10;
+        }
+        .slider-box { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .slider-box label { width: 60px; font-weight: bold; }
+        input[type="range"] { flex: 1; height: 30px; accent-color: var(--blue); } /* 高さを出して触りやすく */
         
         #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 2px 10px; height: 18px; overflow: hidden; flex-shrink: 0; }
-        #tooltip { position: absolute; background: rgba(30, 34, 45, 0.95); border: 1px solid #485c7b; padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; min-width: 180px; }
+        #tooltip { position: absolute; background: rgba(30, 34, 45, 0.95); border: 1px solid #485c7b; padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; min-width: 160px; }
         .tt-date { color: #fff; border-bottom: 1px solid #444; margin-bottom: 4px; font-weight: bold; }
-        .tt-row { display: flex; justify-content: space-between; gap: 10px; line-height: 1.4; }
         
-        .legend { display: flex; justify-content: center; gap: 10px; padding: 5px; background: var(--panel); font-size: 9px; border-top: 1px solid #363c4e; flex-wrap: wrap; flex-shrink: 0; }
+        .legend { display: flex; justify-content: center; gap: 10px; padding: 6px; background: var(--panel); font-size: 9px; border-top: 1px solid #363c4e; flex-wrap: wrap; flex-shrink: 0; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
         .line-box { width: 12px; height: 3px; }
     </style>
@@ -35,12 +55,12 @@
 
 <header>
     <div class="file-controls">
-        <div class="file-input-group"><label>1. 1時間足 (H1)</label><input type="file" id="h1In"></div>
-        <div class="file-input-group"><label>2. Pivot (任意)</label><input type="file" id="pivotIn"></div>
+        <div class="file-input-group"><label>1. H1 CSV</label><input type="file" id="h1In"></div>
+        <div class="file-input-group"><label>2. Pivot CSV</label><input type="file" id="pivotIn"></div>
     </div>
 </header>
 
-<div id="log">ログ: CSVを読み込んでください。右端に予測ラインを表示します。</div>
+<div id="log">ログ: ファイルを選択してください</div>
 
 <div class="chart-container" id="container">
     <div id="tooltip"></div>
@@ -49,14 +69,14 @@
 
 <div class="view-controls">
     <div class="slider-box"><label>表示範囲</label><input type="range" id="zoom" min="24" max="500" value="120"><span id="zoomDisp">120本</span></div>
-    <div class="slider-box"><label>表示位置</label><input type="range" id="scroll" min="0" max="100" value="100"><span>最新</span></div>
+    <div class="slider-box"><label>位置</label><input type="range" id="scroll" min="0" max="100" value="100"></div>
 </div>
 
 <div class="legend">
-    <div class="legend-item"><div class="line-box" style="background:rgba(255,255,255,0.3)"></div>価格</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>当日方向性ライン (23時基準)</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>H1比率</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>H1 10SMA</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>当日方向性</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>比率</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>比率SMA</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--cyan)"></div>価格SMA</div>
 </div>
 
 <script>
@@ -69,7 +89,7 @@
     const scrollSld = document.getElementById('scroll');
     const zoomDisp = document.getElementById('zoomDisp');
 
-    let dataH1 = [], dataSMA = [], dataPriceSMA = [], dataShiftedTrend = [];
+    let dataH1 = [], dataSMA = [], dataPriceSMA = [], dataPivot = [], dataShiftedTrend = [];
     let mouseX = -1;
     const pad = { top: 20, right: 65, bottom: 30, left: 10, gap: 25 };
 
@@ -96,14 +116,25 @@
             if (c.length < 3) continue;
             const t = parseCSVDate(c[0]);
             if (t === null) continue;
-            const vRaw = parseFloat(c[2]);
-            const pRaw = c[3] ? parseFloat(c[3]) : NaN;
-            if (!isNaN(vRaw)) res.push({ t, v: vRaw, p: isNaN(pRaw) ? null : pRaw });
+            res.push({ t, v: parseFloat(c[2]), p: c[3] ? parseFloat(c[3]) : NaN });
         }
         return res.sort((a, b) => a.t - b.t);
     }
 
-    function getSMA(data, n, field = 'v') {
+    function parsePivotCSV(text) {
+        const lines = text.split(/\r?\n/).filter(l => l.includes(','));
+        const res = [];
+        for (let i = 1; i < lines.length; i++) {
+            const c = lines[i].split(',');
+            if (c.length < 13) continue;
+            const t = parseCSVDate(c[1]);
+            if (t === null) continue;
+            res.push({ t, levels: { PP: parseFloat(c[7]), R1: parseFloat(c[6]), S1: parseFloat(c[8]) } });
+        }
+        return res.sort((a, b) => a.t - b.t);
+    }
+
+    function getSMA(data, n, field) {
         return data.map((d, i) => {
             if (i < n - 1) return { t: d.t, v: NaN };
             let sum = 0, count = 0;
@@ -128,38 +159,47 @@
         const totalPoints = dataH1.length;
         const viewRange = parseInt(zoomSld.value);
         zoomDisp.innerText = viewRange + "本";
-        
-        const maxScroll = totalPoints - viewRange;
-        const startIdx = Math.max(0, Math.floor(maxScroll * (parseInt(scrollSld.value) / 100)));
+        const startIdx = Math.max(0, Math.floor((totalPoints - viewRange) * (parseInt(scrollSld.value) / 100)));
         const endIdx = Math.min(totalPoints - 1, startIdx + viewRange);
 
         const getX = (idx) => pad.left + (idx - startIdx) / (endIdx - startIdx) * (w - pad.left - pad.right);
         const splitY = h * 0.45, pTop = pad.top, pBot = splitY, rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
         let visible = dataH1.slice(startIdx, endIdx + 1);
-        let vList = visible.filter(d => d.v !== null).map(d => d.v);
-        const vLo = Math.min(...vList) - 1.5, vHi = Math.max(...vList) + 1.5, vR = vHi - vLo || 1;
-        let pList = visible.filter(d => d.p !== null).map(d => d.p);
-        const pLo = pList.length > 0 ? Math.min(...pList) * 0.999 : 0;
-        const pHi = pList.length > 0 ? Math.max(...pList) * 1.001 : 1;
+        let vList = visible.filter(d => d.v !== null && !isNaN(d.v)).map(d => d.v);
+        const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
+        let pList = visible.filter(d => d.p !== null && !isNaN(d.p)).map(d => d.p);
+        const pLo = pList.length > 0 ? Math.min(...pList) * 0.9995 : 0;
+        const pHi = pList.length > 0 ? Math.max(...pList) * 1.0005 : 1;
         const pR = pHi - pLo || 0.001;
 
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-        // 縦グリッド（日付の境界）
-        ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+        // 日付境界線
+        ctx.setLineDash([2, 2]); ctx.strokeStyle = "#444";
         for (let i = startIdx; i <= endIdx; i++) {
             const d = dataH1[i];
             const prev = dataH1[i-1];
             if (prev && new Date(d.t*1000).getDate() !== new Date(prev.t*1000).getDate()) {
                 const x = getX(i);
-                ctx.strokeStyle = "#444"; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-                ctx.fillStyle = "#888"; ctx.font = "9px sans-serif"; ctx.textAlign = "center";
-                ctx.fillText(new Date(d.t*1000).toLocaleDateString(undefined, {month:'short', day:'numeric'}), x, h - 5);
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
             }
         }
         ctx.setLineDash([]);
+
+        // Pivot描画
+        if (dataPivot.length > 0) {
+            ctx.lineWidth = 1;
+            for (let i = startIdx; i <= endIdx; i++) {
+                const pvt = dataPivot.find(p => p.t <= dataH1[i].t && p.t + 86400 > dataH1[i].t);
+                if (pvt) {
+                    const x = getX(i);
+                    ctx.fillStyle = "rgba(255,255,255,0.1)";
+                    ctx.fillRect(x, getYPrice(pvt.levels.PP), (w/viewRange), 1);
+                }
+            }
+        }
 
         const drawLine = (dataArr, field, color, weight, yFunc, dash = [], isTrend = false) => {
             ctx.strokeStyle = color; ctx.lineWidth = weight; ctx.setLineDash(dash); ctx.beginPath();
@@ -180,78 +220,63 @@
         drawLine(dataH1, 'p', "rgba(255,255,255,0.2)", 1, getYPrice);
         drawLine(dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
 
+        // ツールチップ
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const hoverIdx = Math.round(startIdx + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (endIdx - startIdx));
             const d = dataH1[Math.min(totalPoints-1, Math.max(0, hoverIdx))];
             if (d) {
                 const x = getX(hoverIdx);
                 ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
-                tooltip.style.display = "block"; tooltip.style.left = (x > w - 200 ? x - 190 : x + 10) + "px"; tooltip.style.top = "100px";
+                tooltip.style.display = "block"; tooltip.style.left = (x > w - 180 ? x - 170 : x + 10) + "px"; tooltip.style.top = "100px";
                 const trendVal = dataShiftedTrend.find(st => st.t === d.t);
                 tooltip.innerHTML = `<div class="tt-date">${new Date(d.t*1000).toLocaleString()}</div>
-                    <div class="tt-row"><span style="color:var(--blue)">方向性指標:</span><span>${trendVal ? trendVal.v.toFixed(1) : '--'}%</span></div>
-                    <div class="tt-row"><span style="color:var(--orange)">H1比率:</span><span>${(d.v || 0).toFixed(1)}%</span></div>
-                    <div class="tt-row"><span style="color:var(--green)">SMA:</span><span>${(dataSMA[hoverIdx]?.v || 0).toFixed(1)}%</span></div>`;
+                    <div>方向性: ${trendVal ? trendVal.v.toFixed(1) : '--'}%</div>
+                    <div>比率: ${(d.v||0).toFixed(1)}%</div>`;
             }
         } else tooltip.style.display = "none";
     }
 
-    function initIn(id) {
+    function initIn(id, type) {
         document.getElementById(id).addEventListener('change', e => {
             const f = e.target.files[0]; if(!f) return;
             const r = new FileReader();
             r.onload = ev => {
-                dataH1 = parseCSV(ev.target.result); 
-                
-                // 【修正】チャートの右端（明日の0:00）としてダミーポイントを追加
-                const lastActual = dataH1[dataH1.length - 1];
-                const next0 = new Date(lastActual.t * 1000);
-                next0.setHours(24, 0, 0, 0);
-                const next0T = Math.floor(next0.getTime() / 1000);
-                if (lastActual.t < next0T) {
-                    dataH1.push({ t: next0T, v: null, p: null });
-                }
-
-                dataSMA = getSMA(dataH1, 10, 'v'); 
-                dataPriceSMA = getSMA(dataH1, 10, 'p'); 
-                
-                // 【修正】23:00基準の方向性ライン（当日エンドまで投影）
-                dataShiftedTrend = [];
-                const indices23 = [];
-                dataH1.forEach((d, idx) => {
-                    if (new Date(d.t * 1000).getHours() === 23) indices23.push(idx);
-                });
-
-                for (let i = 0; i < indices23.length; i++) {
-                    const current23Idx = indices23[i];
-                    const prev23Idx = i > 0 ? indices23[i-1] : -1;
-                    if (prev23Idx !== -1) {
-                        // この日のラインの始点（昨日の23時）をプロット
-                        dataShiftedTrend.push({ t: dataH1[current23Idx].t, v: dataH1[prev23Idx].v });
+                if(type === 'h1') {
+                    dataH1 = parseCSV(ev.target.result); 
+                    const lastActual = dataH1[dataH1.length - 1];
+                    const next0 = new Date(lastActual.t * 1000);
+                    next0.setHours(24, 0, 0, 0);
+                    dataH1.push({ t: Math.floor(next0.getTime() / 1000), v: null, p: null });
+                    dataSMA = getSMA(dataH1, 10, 'v'); 
+                    dataPriceSMA = getSMA(dataH1, 10, 'p'); 
+                    
+                    dataShiftedTrend = [];
+                    const indices23 = [];
+                    dataH1.forEach((d, idx) => { if (new Date(d.t * 1000).getHours() === 23) indices23.push(idx); });
+                    for (let i = 0; i < indices23.length; i++) {
+                        if (i > 0) dataShiftedTrend.push({ t: dataH1[indices23[i]].t, v: dataH1[indices23[i-1]].v });
                     }
+                    if (indices23.length > 0) {
+                        dataShiftedTrend.push({ t: dataH1[dataH1.length - 1].t, v: dataH1[indices23[indices23.length - 1]].v });
+                    }
+                } else {
+                    dataPivot = parsePivotCSV(ev.target.result);
                 }
-                // 最新の予測：直近の23:00の値を、チャートの右端(仮想ポイント)に結ぶ
-                if (indices23.length > 0) {
-                    const last23Idx = indices23[indices23.length - 1];
-                    const dummyIdx = dataH1.length - 1;
-                    dataShiftedTrend.push({ t: dataH1[dummyIdx].t, v: dataH1[last23Idx].v });
-                }
-
-                writeLog(f.name + " 完了 (予測ライン追加済)"); draw();
+                writeLog(f.name + " 完了"); draw();
             };
             r.readAsText(f);
         });
     }
 
-    initIn('h1In');
+    initIn('h1In', 'h1'); initIn('pivotIn', 'pivot');
     zoomSld.oninput = draw; scrollSld.oninput = draw;
     const handleMove = e => {
         const r = canvas.getBoundingClientRect(); 
-        const cx = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
+        const cx = (e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1));
         if(cx === -1) return; mouseX = cx - r.left; draw();
     };
     container.addEventListener('mousemove', handleMove); container.addEventListener('touchstart', handleMove);
-    container.addEventListener('touchmove', handleMove); container.addEventListener('mouseleave', () => { mouseX = -1; draw(); });
+    container.addEventListener('touchmove', handleMove);
     window.onresize = draw; window.onload = draw;
 </script>
 </body>
