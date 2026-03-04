@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard - Shifted 23:00 Trend</title>
+    <title>FX Dashboard - Next Business Day Trend</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; display: flex; flex-direction: column; height: 100vh; }
@@ -53,9 +53,8 @@
 </div>
 
 <div class="legend">
-    <div class="legend-item"><div class="line-box" style="background:rgba(255,255,255,0.3)"></div>生価格</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--cyan)"></div>価格10SMA</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>前日23時→当日23時 (方向性)</div>
+    <div class="legend-item"><div class="line-box" style="background:rgba(255,255,255,0.3)"></div>価格</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>前日23時→翌営業日23時</div>
     <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>H1比率</div>
     <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>H1 10SMA</div>
 </div>
@@ -104,19 +103,6 @@
         return res.sort((a, b) => a.t - b.t);
     }
 
-    function parsePivotCSV(text) {
-        const lines = text.split(/\r?\n/).filter(l => l.includes(','));
-        const res = [];
-        for (let i = 1; i < lines.length; i++) {
-            const c = lines[i].split(',');
-            if (c.length < 13) continue;
-            const t = parseCSVDate(c[1]);
-            if (t === null) continue;
-            res.push({ t, levels: { PP: parseFloat(c[7]) } }); // 簡略化
-        }
-        return res.sort((a, b) => a.t - b.t);
-    }
-
     function getSMA(data, n, field = 'v') {
         return data.map((d, i) => {
             if (i < n - 1) return { t: d.t, v: NaN };
@@ -139,11 +125,11 @@
 
         if (dataH1.length === 0) return;
 
-        // --- 時間軸の計算 (右端を0:00に固定) ---
+        // --- 時間軸の計算 (右端を次の0:00に固定) ---
         const latestT = dataH1[dataH1.length - 1].t;
-        const dObj = new Date((latestT + 3600) * 1000); // 1時間進めて翌日の境界を探す
-        dObj.setHours(0, 0, 0, 0);
-        const chartEndLimit = Math.floor(dObj.getTime() / 1000); // データの後の最初の0:00
+        const dObj = new Date(latestT * 1000);
+        dObj.setHours(24, 0, 0, 0); // 翌日の0:00
+        const chartEndLimit = Math.floor(dObj.getTime() / 1000);
         
         const viewSec = parseInt(zoomSld.value) * 86400;
         zoomDisp.innerText = zoomSld.value + "日";
@@ -155,16 +141,15 @@
 
         const splitY = h * 0.45, pTop = pad.top, pBot = splitY, rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
-        // スケール計算用のデータ抽出
+        // 表示範囲内のデータ
         let visibleH1 = dataH1.filter(d => d.t >= currentStartT && d.t <= currentEndT);
         if (visibleH1.length === 0) return;
 
         const getX = (t) => pad.left + (t - currentStartT) / (currentEndT - currentStartT) * (w - pad.left - pad.right);
         
         let vList = visibleH1.map(d => d.v);
-        let pList = visibleH1.filter(d => d.p !== null).map(d => d.p);
-        
         const vLo = Math.min(...vList) - 1.5, vHi = Math.max(...vList) + 1.5, vR = vHi - vLo || 1;
+        let pList = visibleH1.filter(d => d.p !== null).map(d => d.p);
         const pLo = pList.length > 0 ? Math.min(...pList) * 0.999 : 0;
         const pHi = pList.length > 0 ? Math.max(...pList) * 1.001 : 1;
         const pR = pHi - pLo || 0.001;
@@ -172,7 +157,7 @@
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-        // 日の区切り線 (0:00)
+        // 日の境界線 (0:00)
         ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
         for (let t = chartEndLimit; t >= firstT; t -= 86400) {
             const x = getX(t);
@@ -187,7 +172,7 @@
             ctx.strokeStyle = c; ctx.lineWidth = wd; ctx.setLineDash(dash); ctx.beginPath();
             let started = false;
             ds.forEach(d => {
-                if (d.t < currentStartT - 3600 || d.t > currentEndT + 3600) return;
+                if (d.t < currentStartT - 86400 || d.t > currentEndT + 86400) return;
                 const val = d[f];
                 if (val === null || isNaN(val)) return;
                 const x = getX(d.t), y = yF(val);
@@ -196,11 +181,11 @@
             ctx.stroke(); ctx.setLineDash([]);
         };
 
-        // 描画実行
+        // 描画
         drawPath(dataH1, 'v', "#ff9800", 1, getYRatio);
         drawPath(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
         
-        // 【修正：直線での結び】前日23時→当日23時のトレンド
+        // 【修正】翌営業日の23:00へ繋ぐ直線
         drawPath(dataShiftedTrend, 'v', "#2962ff", 3, getYRatio);
 
         drawPath(dataH1, 'p', "rgba(255,255,255,0.2)", 1, getYPrice);
@@ -210,18 +195,12 @@
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const hoverT = currentStartT + (mouseX - pad.left) / (w - pad.left - pad.right) * (currentEndT - currentStartT);
             const d = dataH1.reduce((prev, curr) => Math.abs(curr.t - hoverT) < Math.abs(prev.t - hoverT) ? curr : prev);
-            
             const x = getX(d.t);
             ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
-            
-            tooltip.style.display = "block";
-            tooltip.style.left = (x > w - 200 ? x - 190 : x + 10) + "px";
-            tooltip.style.top = "100px";
-            
+            tooltip.style.display = "block"; tooltip.style.left = (x > w - 200 ? x - 190 : x + 10) + "px"; tooltip.style.top = "100px";
             const trendVal = dataShiftedTrend.find(st => Math.abs(st.t - d.t) < 1800);
-
             tooltip.innerHTML = `<div class="tt-date">${new Date(d.t*1000).toLocaleString()}</div>
-                <div class="tt-row"><span style="color:var(--blue)">23時方向性基準:</span><span>${trendVal ? trendVal.v.toFixed(1) : '--'}%</span></div>
+                <div class="tt-row"><span style="color:var(--blue)">方向性指標:</span><span>${trendVal ? trendVal.v.toFixed(1) : '--'}%</span></div>
                 <div class="tt-row"><span style="color:var(--orange)">H1比率:</span><span>${(d.v).toFixed(1)}%</span></div>
                 <div class="tt-row"><span style="color:var(--green)">H1 10SMA:</span><span>${(dataSMA.find(s=>s.t===d.t)?.v || 0).toFixed(1)}%</span></div>
                 <div class="tt-row"><span style="color:var(--cyan)">価格10SMA:</span><span>${(dataPriceSMA.find(s=>s.t===d.t)?.v || 0).toFixed(5)}</span></div>`;
@@ -239,17 +218,14 @@
                     dataSMA = getSMA(dataH1, 10, 'v'); 
                     dataPriceSMA = getSMA(dataH1, 10, 'p'); 
                     
-                    // 【修正ロジック】23:00のデータを翌日の23:00としてプロット
+                    // 【修正ロジック】CSV内の「次の23:00」を検索して紐付ける
                     dataShiftedTrend = [];
-                    dataH1.forEach(d => {
-                        const date = new Date(d.t * 1000);
-                        if (date.getHours() === 23) {
-                            // 24時間後（翌日の23:00）の時刻に、現在の値をセット
-                            dataShiftedTrend.push({ t: d.t + 86400, v: d.v });
-                        }
-                    });
-                } else if(type === 'pivot') {
-                    dataPivot = parsePivotCSV(ev.target.result);
+                    const entries23 = dataH1.filter(d => new Date(d.t * 1000).getHours() === 23);
+                    for (let i = 0; i < entries23.length - 1; i++) {
+                        // entries23[i] の値を、次の23:00である entries23[i+1] の時刻にプロット
+                        // これにより、金曜23:00の値は月曜23:00の時刻へ繋がる
+                        dataShiftedTrend.push({ t: entries23[i+1].t, v: entries23[i].v });
+                    }
                 }
                 writeLog(f.name + " 完了"); draw();
             };
@@ -257,18 +233,15 @@
         });
     }
 
-    initIn('h1In', 'h1'); initIn('pivotIn', 'pivot');
+    initIn('h1In', 'h1');
     zoomSld.oninput = draw; scrollSld.oninput = draw;
-    
     const handleMove = e => {
         const r = canvas.getBoundingClientRect(); 
         const cx = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
         if(cx === -1) return; mouseX = cx - r.left; draw();
     };
-    container.addEventListener('mousemove', handleMove); 
-    container.addEventListener('touchstart', handleMove);
-    container.addEventListener('touchmove', handleMove); 
-    container.addEventListener('mouseleave', () => { mouseX = -1; draw(); });
+    container.addEventListener('mousemove', handleMove); container.addEventListener('touchstart', handleMove);
+    container.addEventListener('touchmove', handleMove); container.addEventListener('mouseleave', () => { mouseX = -1; draw(); });
     window.onresize = draw; window.onload = draw;
 </script>
 </body>
