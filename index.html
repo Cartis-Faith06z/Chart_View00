@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard - Daily 2SMA Edition</title>
+    <title>FX Dashboard - H1 23:00 Reference Edition</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; --pivot: #666; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; display: flex; flex-direction: column; height: 100vh; }
         header { padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; }
-        .file-controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .file-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .file-input-group { background: #2a2e39; border: 1px solid #444; padding: 5px; border-radius: 4px; }
-        .file-input-group label { display: block; font-size: 10px; color: var(--blue); font-weight: bold; margin-bottom: 3px; }
+        .file-input-group label { display: block; font-size: 10px; color: var(--cyan); font-weight: bold; margin-bottom: 3px; }
         input[type="file"] { font-size: 11px; width: 100%; color: #aaa; }
         
         .chart-container { position: relative; flex-grow: 1; background: var(--bg); overflow: hidden; }
@@ -21,12 +21,11 @@
         .slider-box label { width: 60px; }
         input[type="range"] { flex: 1; accent-color: var(--blue); }
         
-        /* Pivot切り替え用のスタイル */
         .toggle-box { display: flex; align-items: center; gap: 10px; padding-top: 5px; border-top: 1px solid #333; margin-top: 5px; }
         .toggle-box input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
 
         #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 2px 10px; height: 18px; overflow: hidden; flex-shrink: 0; }
-        #tooltip { position: absolute; background: rgba(30, 34, 45, 0.95); border: 1px solid #485c7b; padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; min-width: 140px; }
+        #tooltip { position: absolute; background: rgba(30, 34, 45, 0.95); border: 1px solid #485c7b; padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; min-width: 160px; }
         .tt-date { color: #fff; border-bottom: 1px solid #444; margin-bottom: 4px; font-weight: bold; }
         .tt-row { display: flex; justify-content: space-between; gap: 10px; line-height: 1.4; }
         
@@ -39,13 +38,12 @@
 
 <header>
     <div class="file-controls">
-        <div class="file-input-group"><label>1. 日足 (D1)</label><input type="file" id="d1In"></div>
-        <div class="file-input-group"><label>2. 1時間足 (H1)</label><input type="file" id="h1In"></div>
-        <div class="file-input-group"><label>3. Pivot</label><input type="file" id="pivotIn"></div>
+        <div class="file-input-group"><label>1. 1時間足 (H1)</label><input type="file" id="h1In"></div>
+        <div class="file-input-group"><label>2. Pivot</label><input type="file" id="pivotIn"></div>
     </div>
 </header>
 
-<div id="log">ログ: 各CSVを読み込んでください。</div>
+<div id="log">ログ: H1 CSVを読み込んでください。</div>
 
 <div class="chart-container" id="container">
     <div id="tooltip"></div>
@@ -53,7 +51,7 @@
 </div>
 
 <div class="view-controls">
-    <div class="slider-box"><label>表示期間</label><input type="range" id="zoom" min="1" max="100" value="20"><span id="zoomDisp">20日</span></div>
+    <div class="slider-box"><label>表示期間</label><input type="range" id="zoom" min="1" max="100" value="10"><span id="zoomDisp">10日</span></div>
     <div class="slider-box"><label>表示位置</label><input type="range" id="scroll" min="0" max="100" value="100"><span>最新</span></div>
     <div class="toggle-box">
         <input type="checkbox" id="showPivot">
@@ -64,8 +62,7 @@
 <div class="legend">
     <div class="legend-item"><div class="line-box" style="background:rgba(255,255,255,0.3)"></div>生価格</div>
     <div class="legend-item"><div class="line-box" style="background:var(--cyan)"></div>価格10SMA</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>D1比率</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--blue); border-top:1px dashed white;"></div>D1 2SMA</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>H1 前日23時基準</div>
     <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>H1比率</div>
     <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>H1 10SMA</div>
 </div>
@@ -81,7 +78,7 @@
     const zoomDisp = document.getElementById('zoomDisp');
     const showPivotChk = document.getElementById('showPivot');
 
-    let dataD1 = [], dataD1SMA = [], dataH1 = [], dataSMA = [], dataPriceSMA = [], dataPivot = [];
+    let dataH1 = [], dataSMA = [], dataPriceSMA = [], dataPivot = [], dataH1_23Ref = [];
     let mouseX = -1;
     const pad = { top: 20, right: 65, bottom: 30, left: 10, gap: 25 };
 
@@ -150,14 +147,12 @@
         const w = rect.width, h = rect.height;
         ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
 
-        const mainData = dataH1.length > 0 ? dataH1 : dataD1;
-        if (mainData.length === 0) return;
+        if (dataH1.length === 0) return;
 
-        const isH1 = dataH1.length > 0;
-        const ptsPerDay = isH1 ? 24 : 1; 
+        const ptsPerDay = 24; 
         const viewRange = Math.max(ptsPerDay, parseInt(zoomSld.value) * ptsPerDay);
         zoomDisp.innerText = zoomSld.value + "日";
-        const maxIdx = mainData.length - 1;
+        const maxIdx = dataH1.length - 1;
         const iMin = Math.max(0, (maxIdx - viewRange) * (parseInt(scrollSld.value) / 100));
         const iMax = Math.min(maxIdx, iMin + viewRange);
 
@@ -165,15 +160,15 @@
 
         let vList = [], pList = [];
         for (let i = Math.floor(iMin); i <= Math.ceil(iMax); i++) {
-            const d = mainData[i];
+            const d = dataH1[i];
             if (d.v !== null && !isNaN(d.v)) vList.push(d.v);
-            if (isH1 && dataSMA[i] && !isNaN(dataSMA[i].v)) vList.push(dataSMA[i].v);
+            if (dataSMA[i] && !isNaN(dataSMA[i].v)) vList.push(dataSMA[i].v);
             if (d.p !== null && !isNaN(d.p)) pList.push(d.p);
-            if (isH1 && dataPriceSMA[i] && !isNaN(dataPriceSMA[i].v)) pList.push(dataPriceSMA[i].v);
+            if (dataPriceSMA[i] && !isNaN(dataPriceSMA[i].v)) pList.push(dataPriceSMA[i].v);
         }
-        dataD1.forEach(d => {
-            const tS = d.t + 86400;
-            if (mainData[Math.floor(iMin)] && tS >= mainData[Math.floor(iMin)].t && tS <= mainData[Math.min(maxIdx, Math.ceil(iMax))].t) vList.push(d.v);
+        // 基準線の値もスケールに含める
+        dataH1_23Ref.forEach(d => {
+            if (d.t >= dataH1[Math.floor(iMin)].t && d.t <= dataH1[Math.min(maxIdx, Math.ceil(iMax))].t) vList.push(d.v);
         });
 
         if(vList.length === 0) return;
@@ -186,7 +181,7 @@
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-        // グリッド描画
+        // グリッド
         ctx.lineWidth = 1; ctx.strokeStyle = "#2b2b43"; ctx.textAlign = "right"; ctx.fillStyle = "#787b86"; ctx.font = "9px sans-serif";
         for (let i = 0; i <= 4; i++) {
             const vy = getYRatio(vLo + (vR * i / 4));
@@ -199,19 +194,19 @@
             }
         }
 
-        // Pivot描画（チェックが入っている場合のみ）
+        // Pivot
         if (showPivotChk.checked && dataPivot.length > 0) {
             ctx.lineWidth = 1;
             for (let i = Math.floor(iMin); i <= Math.ceil(iMax); i++) {
-                const dH = mainData[i];
+                const dH = dataH1[i];
                 const pvt = dataPivot.find(p => p.t <= dH.t && p.t + 86400 > dH.t);
                 if (pvt) {
                     const x = getX(i);
                     Object.entries(pvt.levels).forEach(([lvl, val]) => {
                         const py = getYPrice(val);
                         if (py >= pTop && py <= pBot) {
-                            ctx.fillStyle = lvl === 'PP' ? "#aaa" : (lvl.startsWith('R') ? "rgba(255,0,0,0.2)" : "rgba(0,255,0,0.2)");
-                            ctx.fillRect(x, py, (w - pad.left - pad.right) / (iMax - iMin), 1);
+                            ctx.fillStyle = lvl === 'PP' ? "#aaa" : (lvl.startsWith('R') ? "rgba(255,0,0,0.15)" : "rgba(0,255,0,0.15)");
+                            ctx.fillRect(x, py, (w - pad.left - pad.right) / (iMax - iMin) + 1, 1);
                         }
                     });
                 }
@@ -229,62 +224,51 @@
             ctx.stroke(); ctx.setLineDash([]);
         };
 
-        if (isH1) {
-            drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio);
-            drawMainLine(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
-        }
-        
+        // H1比率
+        drawMainLine(dataH1, 'v', "#ff9800", 1, getYRatio);
+        // H1 10SMA
+        drawMainLine(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
+
+        // 【新機能】23:00基準線を階段状に描画
         ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 3; ctx.beginPath();
         let lastX = -1, lastV = -1;
-        dataD1.forEach(d => {
-            const tS = d.t + 86400;
-            let idx = mainData.findIndex(m => m.t >= tS);
-            if (idx === -1 && tS >= mainData[maxIdx].t) idx = maxIdx;
-            if (idx !== -1) {
+        dataH1_23Ref.forEach(d => {
+            let idx = dataH1.findIndex(m => m.t >= d.t);
+            if (idx !== -1 && idx <= iMax) {
                 const x = getX(idx), y = getYRatio(d.v);
-                if (lastX === -1) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                if (lastX !== -1) {
+                    ctx.lineTo(x, getYRatio(lastV)); // 前の値を維持して横に引く
+                    ctx.lineTo(x, y); // 新しい値へ縦に移動
+                } else {
+                    ctx.moveTo(x, y);
+                }
                 lastX = x; lastV = d.v;
             }
         });
         if (lastX !== -1 && lastX < getX(maxIdx)) ctx.lineTo(getX(maxIdx), getYRatio(lastV));
         ctx.stroke();
 
-        ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.beginPath();
-        let lastSX = -1, lastSV = -1;
-        dataD1SMA.forEach(d => {
-            if (isNaN(d.v)) return;
-            const tS = d.t + 86400;
-            let idx = mainData.findIndex(m => m.t >= tS);
-            if (idx === -1 && tS >= mainData[maxIdx].t) idx = maxIdx;
-            if (idx !== -1) {
-                const x = getX(idx), y = getYRatio(d.v);
-                if (lastSX === -1) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-                lastSX = x; lastSV = d.v;
-            }
-        });
-        if (lastSX !== -1 && lastSX < getX(maxIdx)) ctx.lineTo(getX(maxIdx), getYRatio(lastSV));
-        ctx.stroke();
-        ctx.setLineDash([]);
+        // 価格
+        drawMainLine(dataH1, 'p', "rgba(255,255,255,0.3)", 1, getYPrice);
+        drawMainLine(dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
 
-        drawMainLine(mainData, 'p', "rgba(255,255,255,0.3)", 1, getYPrice);
-        if (isH1) drawMainLine(dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
-
+        // ツールチップ
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const iH = Math.round(iMin + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (iMax - iMin));
-            const d = mainData[Math.min(maxIdx, Math.max(0, iH))];
+            const d = dataH1[Math.min(maxIdx, Math.max(0, iH))];
             if (d) {
                 const x = getX(iH); ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([4, 4]);
                 ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke(); ctx.setLineDash([]);
-                tooltip.style.display = "block"; tooltip.style.left = (x > w - 160 ? x - 150 : x + 10) + "px"; tooltip.style.top = "100px";
+                tooltip.style.display = "block"; tooltip.style.left = (x > w - 180 ? x - 170 : x + 10) + "px"; tooltip.style.top = "100px";
                 
-                const nearD = dataD1.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: 0};
-                const nearDSMA = dataD1SMA.find(dd => Math.abs((dd.t + 86400) - d.t) < 43200) || {v: NaN};
+                // 現在時刻に適用されている23時基準値を探す
+                const currentRef = dataH1_23Ref.slice().reverse().find(r => r.t <= d.t);
                 
                 tooltip.innerHTML = `<div class="tt-date">${new Date(d.t*1000).toLocaleString()}</div>
-                    <div class="tt-row"><span style="color:var(--blue)">D1:</span><span>${nearD.v.toFixed(1)}%</span></div>
-                    <div class="tt-row"><span style="color:var(--blue)">D1 2SMA:</span><span>${isNaN(nearDSMA.v) ? '--' : nearDSMA.v.toFixed(1)}%</span></div>
-                    <div class="tt-row"><span style="color:var(--orange)">H1:</span><span>${(d.v || 0).toFixed(1)}%</span></div>
-                    <div class="tt-row"><span style="color:var(--green)">H1 10SMA:</span><span>${(dataSMA[iH]?.v || 0).toFixed(1)}%</span></div>`;
+                    <div class="tt-row"><span style="color:var(--blue)">前日23時基準:</span><span>${currentRef ? currentRef.v.toFixed(1) : '--'}%</span></div>
+                    <div class="tt-row"><span style="color:var(--orange)">H1比率:</span><span>${(d.v || 0).toFixed(1)}%</span></div>
+                    <div class="tt-row"><span style="color:var(--green)">H1 10SMA:</span><span>${(dataSMA[iH]?.v || 0).toFixed(1)}%</span></div>
+                    <div class="tt-row"><span style="color:var(--cyan)">価格10SMA:</span><span>${(dataPriceSMA[iH]?.v || 0).toFixed(5)}</span></div>`;
             }
         } else tooltip.style.display = "none";
     }
@@ -300,10 +284,16 @@
                     dataH1 = parseCSV(ev.target.result); 
                     dataSMA = getSMA(dataH1, 10, 'v'); 
                     dataPriceSMA = getSMA(dataH1, 10, 'p'); 
-                }
-                else {
-                    dataD1 = parseCSV(ev.target.result);
-                    dataD1SMA = getSMA(dataD1, 2, 'v'); 
+                    
+                    // H1データから23:00の値を抽出して翌日0:00の基準値とする
+                    dataH1_23Ref = [];
+                    dataH1.forEach(d => {
+                        const date = new Date(d.t * 1000);
+                        if (date.getHours() === 23) {
+                            // 翌日の0:00のタイムスタンプとして保存
+                            dataH1_23Ref.push({ t: d.t + 3600, v: d.v });
+                        }
+                    });
                 }
                 writeLog(f.name + " 完了"); draw();
             };
@@ -311,12 +301,13 @@
         });
     }
 
-    initIn('d1In', 'd1'); initIn('h1In', 'h1'); initIn('pivotIn', 'pivot');
+    initIn('h1In', 'h1'); initIn('pivotIn', 'pivot');
     zoomSld.oninput = draw; scrollSld.oninput = draw;
-    showPivotChk.onchange = draw; // チェックボックス切り替えで再描画
+    showPivotChk.onchange = draw;
     
     const handleMove = e => {
-        const r = canvas.getBoundingClientRect(); const cx = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
+        const r = canvas.getBoundingClientRect(); 
+        const cx = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : -1);
         if(cx === -1) return; mouseX = cx - r.left; draw();
     };
     container.addEventListener('mousemove', handleMove); container.addEventListener('touchstart', handleMove);
