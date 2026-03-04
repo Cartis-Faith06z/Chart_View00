@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard - Business Days Only</title>
+    <title>FX Dashboard - Trend Projection</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; touch-action: none; display: flex; flex-direction: column; height: 100vh; }
@@ -40,7 +40,7 @@
     </div>
 </header>
 
-<div id="log">ログ: H1 CSVを読み込んでください。土日は自動でカットされます。</div>
+<div id="log">ログ: CSVを読み込んでください。右端に予測ラインを表示します。</div>
 
 <div class="chart-container" id="container">
     <div id="tooltip"></div>
@@ -54,7 +54,7 @@
 
 <div class="legend">
     <div class="legend-item"><div class="line-box" style="background:rgba(255,255,255,0.3)"></div>価格</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>前営業日23時→翌営業日23時</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>当日方向性ライン (23時基準)</div>
     <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>H1比率</div>
     <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>H1 10SMA</div>
 </div>
@@ -108,7 +108,7 @@
             if (i < n - 1) return { t: d.t, v: NaN };
             let sum = 0, count = 0;
             for (let j = 0; j < n; j++) {
-                const val = data[i - j][field];
+                const val = data[i - j] ? data[i - j][field] : null;
                 if (val !== null && !isNaN(val)) { sum += val; count++; }
             }
             return { t: d.t, v: count === n ? sum / n : NaN };
@@ -125,7 +125,6 @@
 
         if (dataH1.length === 0) return;
 
-        // --- インデックスベースの計算 ---
         const totalPoints = dataH1.length;
         const viewRange = parseInt(zoomSld.value);
         zoomDisp.innerText = viewRange + "本";
@@ -135,12 +134,10 @@
         const endIdx = Math.min(totalPoints - 1, startIdx + viewRange);
 
         const getX = (idx) => pad.left + (idx - startIdx) / (endIdx - startIdx) * (w - pad.left - pad.right);
-
         const splitY = h * 0.45, pTop = pad.top, pBot = splitY, rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
-        // 表示範囲のデータ
         let visible = dataH1.slice(startIdx, endIdx + 1);
-        let vList = visible.map(d => d.v);
+        let vList = visible.filter(d => d.v !== null).map(d => d.v);
         const vLo = Math.min(...vList) - 1.5, vHi = Math.max(...vList) + 1.5, vR = vHi - vLo || 1;
         let pList = visible.filter(d => d.p !== null).map(d => d.p);
         const pLo = pList.length > 0 ? Math.min(...pList) * 0.999 : 0;
@@ -169,24 +166,20 @@
             let first = true;
             for (let i = startIdx; i <= endIdx; i++) {
                 const targetT = dataH1[i].t;
-                // 通常データまたはトレンドデータを検索
                 const item = isTrend ? dataArr.find(d => d.t === targetT) : dataArr[i];
-                if (!item || isNaN(item[field])) continue;
-                
+                if (!item || item[field] === null || isNaN(item[field])) continue;
                 const x = getX(i); const y = yFunc(item[field]);
                 if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
             }
             ctx.stroke(); ctx.setLineDash([]);
         };
 
-        // 描画実行
         drawLine(dataH1, 'v', "#ff9800", 1, getYRatio);
         drawLine(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
-        drawLine(dataShiftedTrend, 'v', "#2962ff", 3, getYRatio, [], true); // トレンド線
+        drawLine(dataShiftedTrend, 'v', "#2962ff", 3, getYRatio, [], true); 
         drawLine(dataH1, 'p', "rgba(255,255,255,0.2)", 1, getYPrice);
         drawLine(dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
 
-        // ツールチップ
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const hoverIdx = Math.round(startIdx + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (endIdx - startIdx));
             const d = dataH1[Math.min(totalPoints-1, Math.max(0, hoverIdx))];
@@ -197,35 +190,60 @@
                 const trendVal = dataShiftedTrend.find(st => st.t === d.t);
                 tooltip.innerHTML = `<div class="tt-date">${new Date(d.t*1000).toLocaleString()}</div>
                     <div class="tt-row"><span style="color:var(--blue)">方向性指標:</span><span>${trendVal ? trendVal.v.toFixed(1) : '--'}%</span></div>
-                    <div class="tt-row"><span style="color:var(--orange)">H1比率:</span><span>${(d.v).toFixed(1)}%</span></div>
+                    <div class="tt-row"><span style="color:var(--orange)">H1比率:</span><span>${(d.v || 0).toFixed(1)}%</span></div>
                     <div class="tt-row"><span style="color:var(--green)">SMA:</span><span>${(dataSMA[hoverIdx]?.v || 0).toFixed(1)}%</span></div>`;
             }
         } else tooltip.style.display = "none";
     }
 
-    function initIn(id, type) {
+    function initIn(id) {
         document.getElementById(id).addEventListener('change', e => {
             const f = e.target.files[0]; if(!f) return;
             const r = new FileReader();
             r.onload = ev => {
                 dataH1 = parseCSV(ev.target.result); 
+                
+                // 【修正】チャートの右端（明日の0:00）としてダミーポイントを追加
+                const lastActual = dataH1[dataH1.length - 1];
+                const next0 = new Date(lastActual.t * 1000);
+                next0.setHours(24, 0, 0, 0);
+                const next0T = Math.floor(next0.getTime() / 1000);
+                if (lastActual.t < next0T) {
+                    dataH1.push({ t: next0T, v: null, p: null });
+                }
+
                 dataSMA = getSMA(dataH1, 10, 'v'); 
                 dataPriceSMA = getSMA(dataH1, 10, 'p'); 
                 
-                // 【修正：営業日ベースのトレンド紐付け】
+                // 【修正】23:00基準の方向性ライン（当日エンドまで投影）
                 dataShiftedTrend = [];
-                const entries23 = dataH1.filter(d => new Date(d.t * 1000).getHours() === 23);
-                for (let i = 0; i < entries23.length - 1; i++) {
-                    // 「前の23時」の値を「現在の23時」の時刻に割り当てる
-                    dataShiftedTrend.push({ t: entries23[i+1].t, v: entries23[i].v });
+                const indices23 = [];
+                dataH1.forEach((d, idx) => {
+                    if (new Date(d.t * 1000).getHours() === 23) indices23.push(idx);
+                });
+
+                for (let i = 0; i < indices23.length; i++) {
+                    const current23Idx = indices23[i];
+                    const prev23Idx = i > 0 ? indices23[i-1] : -1;
+                    if (prev23Idx !== -1) {
+                        // この日のラインの始点（昨日の23時）をプロット
+                        dataShiftedTrend.push({ t: dataH1[current23Idx].t, v: dataH1[prev23Idx].v });
+                    }
                 }
-                writeLog(f.name + " 完了（土日カット済）"); draw();
+                // 最新の予測：直近の23:00の値を、チャートの右端(仮想ポイント)に結ぶ
+                if (indices23.length > 0) {
+                    const last23Idx = indices23[indices23.length - 1];
+                    const dummyIdx = dataH1.length - 1;
+                    dataShiftedTrend.push({ t: dataH1[dummyIdx].t, v: dataH1[last23Idx].v });
+                }
+
+                writeLog(f.name + " 完了 (予測ライン追加済)"); draw();
             };
             r.readAsText(f);
         });
     }
 
-    initIn('h1In', 'h1');
+    initIn('h1In');
     zoomSld.oninput = draw; scrollSld.oninput = draw;
     const handleMove = e => {
         const r = canvas.getBoundingClientRect(); 
