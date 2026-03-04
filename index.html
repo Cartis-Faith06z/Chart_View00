@@ -3,49 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard - Mobile Optimized</title>
+    <title>FX Dashboard - Pivot Fully Restored</title>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; }
-        
-        /* 100dvhを使用してアドレスバーとの被りを防止 */
-        body { 
-            margin: 0; 
-            background: var(--bg); 
-            color: var(--text); 
-            font-family: -apple-system, sans-serif; 
-            overflow: hidden; 
-            display: flex; 
-            flex-direction: column; 
-            height: 100vh; 
-            height: 100dvh; 
-        }
-
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --orange: #ff9800; --green: #4caf50; --price: #ffffff; --grid: #2b2b43; --cyan: #00bcd4; --r1: #ff5252; --s1: #00e676; --pp: #90a4ae; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; overflow: hidden; display: flex; flex-direction: column; height: 100dvh; }
         header { padding: 8px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; }
         .file-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .file-input-group { background: #2a2e39; border: 1px solid #444; padding: 4px; border-radius: 4px; }
         .file-input-group label { display: block; font-size: 10px; color: var(--cyan); font-weight: bold; margin-bottom: 2px; }
         input[type="file"] { font-size: 10px; width: 100%; color: #aaa; }
-        
         .chart-container { position: relative; flex-grow: 1; background: var(--bg); overflow: hidden; }
         canvas { width: 100%; height: 100%; }
-        
-        /* 操作パネルの改善 */
-        .view-controls { 
-            background: #1e222d; 
-            padding: 12px 12px 24px 12px; /* 下部に余裕を持たせる */
-            border-top: 1px solid #333; 
-            font-size: 11px; 
-            flex-shrink: 0; 
-            z-index: 10;
-        }
+        .view-controls { background: #1e222d; padding: 12px 12px 24px 12px; border-top: 1px solid #333; font-size: 11px; flex-shrink: 0; z-index: 10; }
         .slider-box { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
         .slider-box label { width: 60px; font-weight: bold; }
-        input[type="range"] { flex: 1; height: 30px; accent-color: var(--blue); } /* 高さを出して触りやすく */
-        
+        input[type="range"] { flex: 1; height: 30px; accent-color: var(--blue); }
         #log { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 2px 10px; height: 18px; overflow: hidden; flex-shrink: 0; }
         #tooltip { position: absolute; background: rgba(30, 34, 45, 0.95); border: 1px solid #485c7b; padding: 8px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; min-width: 160px; }
-        .tt-date { color: #fff; border-bottom: 1px solid #444; margin-bottom: 4px; font-weight: bold; }
-        
         .legend { display: flex; justify-content: center; gap: 10px; padding: 6px; background: var(--panel); font-size: 9px; border-top: 1px solid #363c4e; flex-wrap: wrap; flex-shrink: 0; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
         .line-box { width: 12px; height: 3px; }
@@ -60,7 +34,7 @@
     </div>
 </header>
 
-<div id="log">ログ: ファイルを選択してください</div>
+<div id="log">ログ: H1とPivotを読み込んでください</div>
 
 <div class="chart-container" id="container">
     <div id="tooltip"></div>
@@ -73,10 +47,11 @@
 </div>
 
 <div class="legend">
+    <div class="legend-item"><div class="line-box" style="background:var(--pp)"></div>PP</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--r1)"></div>R1</div>
+    <div class="legend-item"><div class="line-box" style="background:var(--s1)"></div>S1</div>
     <div class="legend-item"><div class="line-box" style="background:var(--blue); height:4px;"></div>当日方向性</div>
     <div class="legend-item"><div class="line-box" style="background:var(--orange)"></div>比率</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--green); border-top:1px dashed white"></div>比率SMA</div>
-    <div class="legend-item"><div class="line-box" style="background:var(--cyan)"></div>価格SMA</div>
 </div>
 
 <script>
@@ -131,19 +106,7 @@
             if (t === null) continue;
             res.push({ t, levels: { PP: parseFloat(c[7]), R1: parseFloat(c[6]), S1: parseFloat(c[8]) } });
         }
-        return res.sort((a, b) => a.t - b.t);
-    }
-
-    function getSMA(data, n, field) {
-        return data.map((d, i) => {
-            if (i < n - 1) return { t: d.t, v: NaN };
-            let sum = 0, count = 0;
-            for (let j = 0; j < n; j++) {
-                const val = data[i - j] ? data[i - j][field] : null;
-                if (val !== null && !isNaN(val)) { sum += val; count++; }
-            }
-            return { t: d.t, v: count === n ? sum / n : NaN };
-        });
+        return res;
     }
 
     function draw() {
@@ -156,84 +119,69 @@
 
         if (dataH1.length === 0) return;
 
-        const totalPoints = dataH1.length;
         const viewRange = parseInt(zoomSld.value);
         zoomDisp.innerText = viewRange + "本";
-        const startIdx = Math.max(0, Math.floor((totalPoints - viewRange) * (parseInt(scrollSld.value) / 100)));
-        const endIdx = Math.min(totalPoints - 1, startIdx + viewRange);
+        const startIdx = Math.max(0, Math.floor((dataH1.length - viewRange) * (parseInt(scrollSld.value) / 100)));
+        const endIdx = Math.min(dataH1.length - 1, startIdx + viewRange);
 
         const getX = (idx) => pad.left + (idx - startIdx) / (endIdx - startIdx) * (w - pad.left - pad.right);
         const splitY = h * 0.45, pTop = pad.top, pBot = splitY, rTop = splitY + pad.gap, rBot = h - pad.bottom;
 
         let visible = dataH1.slice(startIdx, endIdx + 1);
-        let vList = visible.filter(d => d.v !== null && !isNaN(d.v)).map(d => d.v);
+        let vList = visible.filter(d => !isNaN(d.v)).map(d => d.v);
         const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
-        let pList = visible.filter(d => d.p !== null && !isNaN(d.p)).map(d => d.p);
-        const pLo = pList.length > 0 ? Math.min(...pList) * 0.9995 : 0;
-        const pHi = pList.length > 0 ? Math.max(...pList) * 1.0005 : 1;
+        let pList = visible.filter(d => !isNaN(d.p)).map(d => d.p);
+        const pLo = pList.length > 0 ? Math.min(...pList) * 0.999 : 0;
+        const pHi = pList.length > 0 ? Math.max(...pList) * 1.001 : 1;
         const pR = pHi - pLo || 0.001;
 
         const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
         const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-        // 日付境界線
-        ctx.setLineDash([2, 2]); ctx.strokeStyle = "#444";
-        for (let i = startIdx; i <= endIdx; i++) {
-            const d = dataH1[i];
-            const prev = dataH1[i-1];
-            if (prev && new Date(d.t*1000).getDate() !== new Date(prev.t*1000).getDate()) {
-                const x = getX(i);
-                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-            }
-        }
-        ctx.setLineDash([]);
-
-        // Pivot描画
+        // --- Pivot描画 ---
         if (dataPivot.length > 0) {
-            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 2]);
             for (let i = startIdx; i <= endIdx; i++) {
-                const pvt = dataPivot.find(p => p.t <= dataH1[i].t && p.t + 86400 > dataH1[i].t);
+                const h1Date = new Date(dataH1[i].t * 1000).setHours(0,0,0,0) / 1000;
+                const pvt = dataPivot.find(p => new Date(p.t * 1000).setHours(0,0,0,0) / 1000 === h1Date);
                 if (pvt) {
                     const x = getX(i);
-                    ctx.fillStyle = "rgba(255,255,255,0.1)";
-                    ctx.fillRect(x, getYPrice(pvt.levels.PP), (w/viewRange), 1);
+                    const bw = (w - pad.left - pad.right) / (endIdx - startIdx);
+                    ctx.fillStyle = "rgba(144, 164, 174, 0.4)"; ctx.fillRect(x, getYPrice(pvt.levels.PP), bw + 1, 1);
+                    ctx.fillStyle = "rgba(255, 82, 82, 0.4)"; ctx.fillRect(x, getYPrice(pvt.levels.R1), bw + 1, 1);
+                    ctx.fillStyle = "rgba(0, 230, 118, 0.4)"; ctx.fillRect(x, getYPrice(pvt.levels.S1), bw + 1, 1);
                 }
             }
+            ctx.setLineDash([]);
         }
 
-        const drawLine = (dataArr, field, color, weight, yFunc, dash = [], isTrend = false) => {
-            ctx.strokeStyle = color; ctx.lineWidth = weight; ctx.setLineDash(dash); ctx.beginPath();
+        const drawPath = (dataArr, field, color, weight, yFunc, isTrend = false) => {
+            ctx.strokeStyle = color; ctx.lineWidth = weight; ctx.beginPath();
             let first = true;
             for (let i = startIdx; i <= endIdx; i++) {
-                const targetT = dataH1[i].t;
-                const item = isTrend ? dataArr.find(d => d.t === targetT) : dataArr[i];
-                if (!item || item[field] === null || isNaN(item[field])) continue;
-                const x = getX(i); const y = yFunc(item[field]);
+                const item = isTrend ? dataArr.find(d => d.t === dataH1[i].t) : dataArr[i];
+                if (!item || isNaN(item[field]) || item[field] === null) continue;
+                const x = getX(i), y = yFunc(item[field]);
                 if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
             }
-            ctx.stroke(); ctx.setLineDash([]);
+            ctx.stroke();
         };
 
-        drawLine(dataH1, 'v', "#ff9800", 1, getYRatio);
-        drawLine(dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
-        drawLine(dataShiftedTrend, 'v', "#2962ff", 3, getYRatio, [], true); 
-        drawLine(dataH1, 'p', "rgba(255,255,255,0.2)", 1, getYPrice);
-        drawLine(dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
+        drawPath(dataH1, 'v', "#ff9800", 1, getYRatio);
+        drawPath(dataShiftedTrend, 'v', "#2962ff", 3, getYRatio, true);
+        drawPath(dataH1, 'p', "rgba(255,255,255,0.2)", 1, getYPrice);
 
         // ツールチップ
         if (mouseX > pad.left && mouseX < w - pad.right) {
             const hoverIdx = Math.round(startIdx + ((mouseX - pad.left) / (w - pad.left - pad.right)) * (endIdx - startIdx));
-            const d = dataH1[Math.min(totalPoints-1, Math.max(0, hoverIdx))];
+            const d = dataH1[hoverIdx];
             if (d) {
                 const x = getX(hoverIdx);
-                ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, rBot); ctx.stroke();
+                ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
                 tooltip.style.display = "block"; tooltip.style.left = (x > w - 180 ? x - 170 : x + 10) + "px"; tooltip.style.top = "100px";
-                const trendVal = dataShiftedTrend.find(st => st.t === d.t);
-                tooltip.innerHTML = `<div class="tt-date">${new Date(d.t*1000).toLocaleString()}</div>
-                    <div>方向性: ${trendVal ? trendVal.v.toFixed(1) : '--'}%</div>
-                    <div>比率: ${(d.v||0).toFixed(1)}%</div>`;
+                tooltip.innerHTML = `<div style="color:#fff">${new Date(d.t*1000).toLocaleString()}</div>比率: ${d.v.toFixed(1)}%<br>価格: ${d.p ? d.p.toFixed(5) : '--'}`;
             }
-        } else tooltip.style.display = "none";
+        }
     }
 
     function initIn(id, type) {
@@ -242,23 +190,17 @@
             const r = new FileReader();
             r.onload = ev => {
                 if(type === 'h1') {
-                    dataH1 = parseCSV(ev.target.result); 
-                    const lastActual = dataH1[dataH1.length - 1];
-                    const next0 = new Date(lastActual.t * 1000);
-                    next0.setHours(24, 0, 0, 0);
-                    dataH1.push({ t: Math.floor(next0.getTime() / 1000), v: null, p: null });
-                    dataSMA = getSMA(dataH1, 10, 'v'); 
-                    dataPriceSMA = getSMA(dataH1, 10, 'p'); 
+                    dataH1 = parseCSV(ev.target.result);
+                    const last = dataH1[dataH1.length-1];
+                    const next0 = new Date(last.t*1000); next0.setHours(24,0,0,0);
+                    dataH1.push({ t: Math.floor(next0.getTime()/1000), v: null, p: null });
                     
                     dataShiftedTrend = [];
-                    const indices23 = [];
-                    dataH1.forEach((d, idx) => { if (new Date(d.t * 1000).getHours() === 23) indices23.push(idx); });
-                    for (let i = 0; i < indices23.length; i++) {
-                        if (i > 0) dataShiftedTrend.push({ t: dataH1[indices23[i]].t, v: dataH1[indices23[i-1]].v });
+                    const i23 = []; dataH1.forEach((d,idx) => { if(new Date(d.t*1000).getHours() === 23) i23.push(idx); });
+                    for(let i=0; i<i23.length; i++) {
+                        if(i>0) dataShiftedTrend.push({ t: dataH1[i23[i]].t, v: dataH1[i23[i-1]].v });
                     }
-                    if (indices23.length > 0) {
-                        dataShiftedTrend.push({ t: dataH1[dataH1.length - 1].t, v: dataH1[indices23[indices23.length - 1]].v });
-                    }
+                    if(i23.length > 0) dataShiftedTrend.push({ t: dataH1[dataH1.length-1].t, v: dataH1[i23[i23.length-1]].v });
                 } else {
                     dataPivot = parsePivotCSV(ev.target.result);
                 }
@@ -271,13 +213,12 @@
     initIn('h1In', 'h1'); initIn('pivotIn', 'pivot');
     zoomSld.oninput = draw; scrollSld.oninput = draw;
     const handleMove = e => {
-        const r = canvas.getBoundingClientRect(); 
+        const r = canvas.getBoundingClientRect();
         const cx = (e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : -1));
-        if(cx === -1) return; mouseX = cx - r.left; draw();
+        if(cx !== -1) { mouseX = cx - r.left; draw(); }
     };
     container.addEventListener('mousemove', handleMove); container.addEventListener('touchstart', handleMove);
-    container.addEventListener('touchmove', handleMove);
-    window.onresize = draw; window.onload = draw;
+    window.onresize = draw;
 </script>
 </body>
 </html>
