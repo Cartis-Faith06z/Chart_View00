@@ -3,147 +3,144 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX 7-Pair Dashboard</title>
+    <title>FX Multi-Pair Dashboard</title>
     <style>
-        :root { 
-            --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; 
-            --orange: #ff9800; --green: #4caf50; --cyan: #00bcd4; --grid: #2b2b43;
-        }
-        body { 
-            margin: 0; background: var(--bg); color: var(--text); 
-            font-family: sans-serif; display: flex; flex-direction: column; height: 100vh;
-        }
-        /* ヘッダー：一括更新ボタンを配置 */
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        
         header { 
-            padding: 10px; background: var(--panel); border-bottom: 1px solid #363c4e; 
-            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px; background: var(--panel); border-bottom: 1px solid #363c4e; 
+            display: flex; flex-direction: column; gap: 10px; flex-shrink: 0;
         }
-        .btn-update { 
-            padding: 8px 16px; background: var(--blue); color: white; 
-            border: none; border-radius: 4px; font-weight: bold; cursor: pointer;
+        .upload-row { display: flex; gap: 10px; align-items: center; }
+        .file-label { 
+            background: var(--blue); color: white; padding: 6px 12px; border-radius: 4px; 
+            font-size: 13px; cursor: pointer; font-weight: bold;
         }
-        #status { font-size: 12px; color: var(--cyan); }
+        input[type="file"] { display: none; }
+        #status { font-size: 11px; color: #888; }
 
-        /* チャートのグリッドレイアウト（スマホなら縦1列、PCなら複数列） */
+        /* 可変グリッド：データがある分だけ自動で並ぶ */
         #dashboard { 
             flex-grow: 1; overflow-y: auto; padding: 10px;
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 15px;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px;
         }
         .chart-card { 
             background: var(--panel); border-radius: 8px; border: 1px solid #333;
-            display: flex; flex-direction: column; height: 300px; overflow: hidden;
+            height: 320px; display: flex; flex-direction: column;
         }
-        .chart-header { 
-            padding: 5px 10px; background: rgba(255,255,255,0.05); 
-            display: flex; justify-content: space-between; font-size: 12px;
-        }
-        .canvas-wrapper { flex-grow: 1; position: relative; }
+        .chart-header { padding: 8px 12px; background: rgba(255,255,255,0.05); font-weight: bold; font-size: 13px; color: var(--cyan); }
+        .canvas-wrapper { flex-grow: 1; position: relative; min-height: 0; }
         canvas { width: 100%; height: 100%; }
         
-        /* 操作系は各カードの下部に小さく配置 */
-        .chart-controls { padding: 5px 10px; font-size: 10px; display: flex; gap: 10px; }
-        input[type="range"] { flex-grow: 1; height: 20px; }
+        .controls { padding: 8px; display: flex; gap: 8px; font-size: 10px; border-top: 1px solid #333; }
+        .controls input { flex: 1; }
     </style>
 </head>
 <body>
 
 <header>
-    <div><strong>FX 7-Pair Dashboard</strong> <span id="status">準備完了</span></div>
-    <button class="btn-update" id="updateAllBtn">7ペア一括データ更新</button>
+    <div class="upload-row">
+        <label class="file-label">📂 CSV/Pivotファイルを選択 (複数可)
+            <input type="file" id="fileIn" multiple accept=".csv">
+        </label>
+        <span id="status">ファイルを読み込んでください</span>
+    </div>
 </header>
 
-<div id="dashboard">
-    </div>
+<div id="dashboard"></div>
 
 <script>
-    const pairs = ["USDJPY", "EURJPY", "GBPJPY", "EURUSD", "GBPUSD", "AUDUSD", "GOLD_USD"];
     const dashboard = document.getElementById('dashboard');
-    const charts = []; // 各チャートのインスタンスを保持
+    const statusEl = document.getElementById('status');
+    const chartMap = new Map(); // ペア名 -> チャートインスタンス
 
-    // --- チャートクラスの定義 ---
+    // ペア判別用キーワード
+    const pairKeywords = ["USDJPY", "EURJPY", "GBPJPY", "EURUSD", "GBPUSD", "AUDUSD", "GOLD"];
+
+    // ファイル選択時の処理
+    document.getElementById('fileIn').addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        for (const file of files) {
+            const text = await file.text();
+            const fileName = file.name.toUpperCase();
+            
+            // ファイル名からペア名を推測
+            const pair = pairKeywords.find(k => fileName.includes(k)) || "UNKNOWN";
+            const isPivot = fileName.includes("PIVOT");
+
+            // チャートがなければ作成、あれば取得
+            let chart = chartMap.get(pair);
+            if (!chart) {
+                chart = new FXChart(pair);
+                chartMap.set(pair, chart);
+            }
+
+            // データの流し込み
+            if (isPivot) {
+                chart.dataPivot = parsePivotCSV(text);
+                statusEl.innerText = `${pair} Pivot 読み込み完了`;
+            } else {
+                chart.dataH1 = parseCSV(text);
+                // SMAなどの計算ロジック（前回のコードを継承）をここに実行
+                statusEl.innerText = `${pair} H1 読み込み完了`;
+            }
+            chart.draw();
+        }
+    });
+
     class FXChart {
-        constructor(pairName, containerId) {
-            this.pairName = pairName;
+        constructor(pair) {
+            this.pair = pair;
             this.dataH1 = [];
             this.dataPivot = [];
             this.zoom = 120;
             this.scroll = 100;
-            
-            this.initDOM(containerId);
-            this.draw();
+            this.initDOM();
         }
 
-        initDOM(containerId) {
+        initDOM() {
             const card = document.createElement('div');
             card.className = 'chart-card';
             card.innerHTML = `
-                <div class="chart-header">
-                    <span>${this.pairName}</span>
-                    <span id="price-${this.pairName}">--</span>
-                </div>
-                <div class="canvas-wrapper">
-                    <canvas id="canvas-${this.pairName}"></canvas>
-                </div>
-                <div class="chart-controls">
-                    <label>範囲</label>
+                <div class="chart-header">${this.pair}</div>
+                <div class="canvas-wrapper"><canvas></canvas></div>
+                <div class="controls">
                     <input type="range" class="zoom-sld" min="24" max="500" value="120">
                     <input type="range" class="scroll-sld" min="0" max="100" value="100">
                 </div>
             `;
             dashboard.appendChild(card);
-            
             this.canvas = card.querySelector('canvas');
             this.ctx = this.canvas.getContext('2d');
             
-            // イベント設定
-            card.querySelector('.zoom-sld').oninput = (e) => { this.zoom = parseInt(e.target.value); this.draw(); };
-            card.querySelector('.scroll-sld').oninput = (e) => { this.scroll = parseInt(e.target.value); this.draw(); };
-            window.addEventListener('resize', () => this.draw());
-        }
-
-        // データ読み込み（CSV解析ロジックはご提示のコードを継承）
-        loadData(h1Text, pivotText) {
-            // ここで parseCSV(h1Text) や parsePivotCSV(pivotText) を実行して内部データを更新
-            // ... (解析処理) ...
-            this.draw();
+            card.querySelector('.zoom-sld').oninput = (e) => { this.zoom = e.target.value; this.draw(); };
+            card.querySelector('.scroll-sld').oninput = (e) => { this.scroll = e.target.value; this.draw(); };
         }
 
         draw() {
+            // 前回の描画ロジック（drawLine, getYPriceなど）をここに集約
             const ctx = this.ctx;
             const w = this.canvas.clientWidth;
             const h = this.canvas.clientHeight;
             this.canvas.width = w * window.devicePixelRatio;
             this.canvas.height = h * window.devicePixelRatio;
             ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-
-            // 背景描画
+            
             ctx.fillStyle = "#131722";
             ctx.fillRect(0, 0, w, h);
-
-            if (this.dataH1.length === 0) {
-                ctx.fillStyle = "#555";
-                ctx.textAlign = "center";
-                ctx.fillText("データ未読み込み", w/2, h/2);
-                return;
-            }
-
-            // --- ここにご提示いただいた描画ロジック(drawLine, getYPrice等)を移植 ---
-            // PivotのPP, R1, S1を getYPrice を使って描画する処理も含めます
+            
+            // データ描画処理...
+            ctx.fillStyle = "white";
+            ctx.fillText(`${this.pair}: ${this.dataH1.length} points`, 10, 20);
         }
     }
 
-    // --- 初期化 ---
-    pairs.forEach(pair => {
-        charts.push(new FXChart(pair));
-    });
-
-    // 一括更新ボタン（Androidとの連携）
-    document.getElementById('updateAllBtn').onclick = function() {
-        if (window.Android) {
-            const urls = pairs.map(p => `https://member.ks-strategy.com/public_bias_h1/${p.toLowerCase()}`);
-            window.Android.startAutoDownload(JSON.stringify(urls));
-        }
-    };
+    // CSV/Pivotパース関数（ご提示のコードから移植してください）
+    function parseCSV(text) { /* 既存のロジック */ return []; }
+    function parsePivotCSV(text) { /* 既存のロジック */ return []; }
 </script>
 </body>
 </html>
