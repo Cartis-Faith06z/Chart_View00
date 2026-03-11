@@ -1,41 +1,144 @@
-// ファイル選択時のメイン処理
+const dashboard = document.getElementById('dashboard');
+    const statusEl = document.getElementById('status');
+    const chartMap = new Map(); 
+
+    // ペア判別用キーワード
+    const pairKeywords = ["USDJPY", "EURJPY", "GBPJPY", "EURUSD", "GBPUSD", "AUDUSD", "GOLD"];
+
+    function writeLog(m) { statusEl.innerText = m; }
+
+    // --- 解析関数群 (ご提示いただいたコードを最適化) ---
+    function parseCSVDate(s) {
+        if (!s) return null;
+        try {
+            const clean = s.trim().replace(/-/g, '/');
+            const parts = clean.split(' ');
+            const d = parts[0].split('/');
+            let h = 0, m = 0;
+            if (parts.length > 1) { 
+                const t = parts[1].split(':'); 
+                h = parseInt(t[0]); m = parseInt(t[1] || 0); 
+            }
+            const dt = new Date(parseInt(d[0]), parseInt(d[1]) - 1, parseInt(d[2]), h, m, 0);
+            return isNaN(dt.getTime()) ? null : Math.floor(dt.getTime() / 1000);
+        } catch(e) { return null; }
+    }
+
+    function parseCSV(text) {
+        const lines = text.split(/\r?\n/).filter(l => l.includes(','));
+        const res = [];
+        for (let i = 1; i < lines.length; i++) {
+            const c = lines[i].split(',');
+            if (c.length < 3) continue;
+            const t = parseCSVDate(c[0]);
+            if (t === null) continue;
+            res.push({ t, v: parseFloat(c[2]), p: c[3] ? parseFloat(c[3]) : NaN });
+        }
+        return res.sort((a, b) => a.t - b.t);
+    }
+
+    function parsePivotCSV(text) {
+        const lines = text.split(/\r?\n/).filter(l => l.includes(','));
+        const res = [];
+        for (let i = 1; i < lines.length; i++) {
+            const c = lines[i].split(',');
+            if (c.length < 13) continue;
+            const t = parseCSVDate(c[1]);
+            if (t === null) continue;
+            res.push({ t, levels: { PP: parseFloat(c[7]), R1: parseFloat(c[6]), S1: parseFloat(c[8]) } });
+        }
+        return res.sort((a, b) => a.t - b.t);
+    }
+
+    function getSMA(data, n, field) {
+        return data.map((d, i) => {
+            if (i < n - 1) return { t: d.t, v: NaN };
+            let sum = 0, count = 0;
+            for (let j = 0; j < n; j++) {
+                const val = data[i - j] ? data[i - j][field] : null;
+                if (val !== null && !isNaN(val)) { sum += val; count++; }
+            }
+            return { t: d.t, v: count === n ? sum / n : NaN };
+        });
+    }
+
+    // --- チャートクラス ---
+    class FXChart {
+        constructor(pair) {
+            this.pair = pair;
+            this.dataH1 = [];
+            this.dataPivot = [];
+            this.dataSMA = [];
+            this.dataPriceSMA = [];
+            this.zoom = 120;
+            this.scroll = 100;
+            this.initDOM();
+        }
+
+        initDOM() {
+            const card = document.createElement('div');
+            card.className = 'chart-card';
+            card.id = `card-${this.pair}`;
+            card.innerHTML = `
+                <div class="chart-header">${this.pair}</div>
+                <div class="canvas-wrapper"><canvas></canvas></div>
+                <div class="controls">
+                    <input type="range" class="zoom-sld" min="24" max="500" value="120">
+                    <input type="range" class="scroll-sld" min="0" max="100" value="100">
+                </div>
+            `;
+            dashboard.appendChild(card);
+            this.canvas = card.querySelector('canvas');
+            this.ctx = this.canvas.getContext('2d');
+            card.querySelector('.zoom-sld').oninput = (e) => { this.zoom = e.target.value; this.draw(); };
+            card.querySelector('.scroll-sld').oninput = (e) => { this.scroll = e.target.value; this.draw(); };
+        }
+
+        draw() {
+            const ctx = this.ctx;
+            const rect = this.canvas.parentElement.getBoundingClientRect();
+            this.canvas.width = rect.width * window.devicePixelRatio;
+            this.canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            const w = rect.width, h = rect.height;
+
+            ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
+            if (this.dataH1.length === 0) return;
+
+            // 簡易描画（詳細は前回のdrawロジックをここに移植可能です）
+            ctx.fillStyle = "#00bcd4";
+            ctx.font = "12px sans-serif";
+            ctx.fillText(`${this.pair}: H1(${this.dataH1.length}件) Pivot(${this.dataPivot.length}件)`, 10, 25);
+            
+            // 描画テスト用のライン
+            ctx.strokeStyle = "#ff9800";
+            ctx.beginPath();
+            ctx.moveTo(0, h/2); ctx.lineTo(w, h/2);
+            ctx.stroke();
+        }
+    }
+
+    // --- ファイル選択イベント ---
     document.getElementById('fileIn').addEventListener('change', async (e) => {
         const files = Array.from(e.target.files);
-        if (files.length === 0) return;
-
         for (const file of files) {
             const text = await file.text();
             const fileName = file.name.toUpperCase();
-            
-            // 1. ペア名の特定 (ファイル名からキーワードを探す)
             const pair = pairKeywords.find(k => fileName.includes(k));
-            if (!pair) {
-                writeLog("不明なファイル: " + file.name);
-                continue; 
-            }
+            if (!pair) continue;
 
-            const isPivot = fileName.includes("PIVOT");
-
-            // 2. チャート枠がなければ新規作成
             let chart = chartMap.get(pair);
-            if (!chart) {
-                chart = new FXChart(pair);
-                chartMap.set(pair, chart);
-            }
+            if (!chart) { chart = new FXChart(pair); chartMap.set(pair, chart); }
 
-            // 3. データの解析と格納
-            if (isPivot) {
-                chart.dataPivot = parsePivotCSV(text); // [cite: 156, 160]
-                writeLog(`${pair} Pivot 読み込み: ${chart.dataPivot.length}件`);
+            if (fileName.includes("PIVOT")) {
+                chart.dataPivot = parsePivotCSV(text);
+                writeLog(`${pair} Pivot 読み込み完了`);
             } else {
-                chart.dataH1 = parseCSV(text); // [cite: 151, 155]
-                // SMAの計算などを実行
-                chart.dataSMA = getSMA(chart.dataH1, 10, 'v'); // [cite: 161]
+                chart.dataH1 = parseCSV(text);
+                chart.dataSMA = getSMA(chart.dataH1, 10, 'v');
                 chart.dataPriceSMA = getSMA(chart.dataH1, 10, 'p');
-                writeLog(`${pair} H1 読み込み: ${chart.dataH1.length}件`);
+                writeLog(`${pair} H1 読み込み完了`);
             }
-
-            // 4. 強制描画
             chart.draw();
         }
     });
