@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard v1.0.9</title>
+    <title>FX Dashboard v1.1.0</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --orange: #ff9800; --green: #4caf50; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -13,30 +13,12 @@
         .file-label { background: var(--blue); color: white; padding: 8px 15px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; }
         input[type="file"] { display: none; }
         #status { font-size: 11px; color: var(--cyan); }
-        
-        #dashboard { 
-            flex-grow: 1; overflow-y: auto; padding: 10px; 
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; 
-        }
-        
-        /* カードの高さを強制固定 (380px) し、内部の伸びを禁止 */
-        .chart-card { 
-            background: var(--panel); border-radius: 8px; border: 1px solid #333; 
-            height: 380px; min-height: 380px; max-height: 380px;
-            display: flex; flex-direction: column; overflow: hidden;
-        }
-        
+        #dashboard { flex-grow: 1; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; }
+        .chart-card { background: var(--panel); border-radius: 8px; border: 1px solid #333; height: 380px; max-height: 380px; display: flex; flex-direction: column; overflow: hidden; }
         .chart-header { padding: 8px 12px; background: rgba(255,255,255,0.05); font-size: 12px; display: flex; justify-content: space-between; border-bottom: 1px solid #333; flex-shrink: 0; }
         .info-display { color: #fff; font-family: monospace; }
-        
-        /* キャンバスを包むエリアも高さを固定 */
-        .canvas-wrapper { 
-            flex-grow: 1; position: relative; cursor: crosshair; touch-action: none; 
-            height: 200px; /* 基準の高さを設定 */
-            overflow: hidden;
-        }
+        .canvas-wrapper { flex-grow: 1; position: relative; cursor: crosshair; touch-action: none; overflow: hidden; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        
         .controls { padding: 8px; border-top: 1px solid #333; flex-shrink: 0; background: var(--panel); }
         .sld-group { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
         input[type="range"] { flex-grow: 1; accent-color: var(--blue); }
@@ -51,7 +33,7 @@
         </label>
         <span id="status">ファイルを読み込んでください</span>
     </div>
-    <div class="version">v1.0.9</div>
+    <div class="version">v1.1.0</div>
 </header>
 
 <div id="dashboard"></div>
@@ -102,7 +84,7 @@
         constructor(pair) {
             this.pair = pair;
             this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = [];
-            this.dataPvt = []; this.dataShifted = [];
+            this.dataPvt = []; this.dataShiftedRaw = [];
             this.zoom = 120; this.scroll = 100; this.mouseX = -1;
             this.initDOM();
         }
@@ -125,48 +107,39 @@
             
             card.querySelector('.zoom-sld').oninput = (e) => { this.zoom = parseInt(e.target.value); this.draw(); };
             card.querySelector('.scroll-sld').oninput = (e) => { this.scroll = parseInt(e.target.value); this.draw(); };
-            
             this.canvas.addEventListener('mousemove', (e) => {
                 const rect = this.canvas.getBoundingClientRect();
                 this.mouseX = (e.clientX - rect.left);
-                this.draw(); // 描画のみ行い、レイアウト変更はさせない
+                this.draw();
             });
             window.addEventListener('resize', () => this.draw());
         }
 
         draw() {
             const ctx = this.ctx;
-            // 枠のサイズを取得（固定値を使うことでループを防止）
-            const w = this.canvas.clientWidth;
-            const h = this.canvas.clientHeight;
-            
-            // 解像度調整（これ自体はサイズを変更しない）
+            const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
             if (this.canvas.width !== Math.floor(w * window.devicePixelRatio)) {
                 this.canvas.width = w * window.devicePixelRatio;
                 this.canvas.height = h * window.devicePixelRatio;
             }
-            
-            ctx.setTransform(1, 0, 0, 1, 0, 0); // リセット
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
             ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
             if (this.dataH1.length === 0) return;
 
-            const lastDataT = this.dataH1[this.dataH1.length - 1].t;
-            const viewEnd = lastDataT; 
-            const totalDuration = this.zoom * 3600;
-            const viewStart = viewEnd - totalDuration;
-            
-            const maxOffset = (this.dataH1[this.dataH1.length-1].t - this.dataH1[0].t) - totalDuration;
-            const currentOffset = Math.max(0, maxOffset) * (1 - this.scroll/100);
-            const finalStart = viewStart - currentOffset, finalEnd = viewEnd - currentOffset;
+            // --- インデックスベースの描画設定 ---
+            const total = this.dataH1.length;
+            const viewCount = Math.min(this.zoom, total);
+            const maxScrollIdx = total - viewCount;
+            const startIdx = Math.floor(maxScrollIdx * (1 - this.scroll/100));
+            const endIdx = startIdx + viewCount - 1;
 
-            const getX = (t) => 10 + (t - finalStart) / (finalEnd - finalStart) * (w - 75);
+            // 右端に翌日0:00を想定した1ピクセル分の余白を持たせる
+            const getX = (idx) => 10 + (idx - startIdx) / (viewCount) * (w - 75);
             const splitY = h * 0.55, pBot = splitY - 10, rTop = splitY + 10, rBot = h - 20;
 
-            const visible = this.dataH1.filter(d => d.t >= finalStart && d.t <= finalEnd);
-            if(visible.length === 0) return;
-
+            const visible = this.dataH1.slice(startIdx, endIdx + 1);
             const pL = visible.map(d => d.p).filter(p => !isNaN(p));
             const pLo = Math.min(...pL), pHi = Math.max(...pL), pR = (pHi - pLo || 0.01) * 1.3;
             const getYp = (p) => pBot - ((p - (pLo - pR*0.1)) / pR) * (pBot - 20);
@@ -178,14 +151,15 @@
             ctx.strokeStyle = "#2b2b43"; ctx.lineWidth = 0.5;
             ctx.beginPath(); ctx.moveTo(0,splitY); ctx.lineTo(w,splitY); ctx.stroke();
 
+            // 共通描画関数 (インデックス使用)
             const drawL = (arr, f, col, lw, yf, dash=[]) => {
                 ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash);
                 ctx.beginPath(); let first = true;
-                arr.forEach(d => {
-                    if(d.t < finalStart || d.t > finalEnd || isNaN(d[f])) return;
-                    const x = getX(d.t), y = yf(d[f]);
+                for(let i = startIdx; i <= endIdx; i++) {
+                    const d = arr[i]; if(!d || isNaN(d[f])) continue;
+                    const x = getX(i), y = yf(d[f]);
                     if(first){ ctx.moveTo(x,y); first=false; } else ctx.lineTo(x,y);
-                });
+                }
                 ctx.stroke(); ctx.setLineDash([]);
             };
 
@@ -194,26 +168,49 @@
             drawL(this.dataH1, 'v', "#ff9800", 1, getYr);
             drawL(this.dataSMA, 'v', "#4caf50", 1.5, getYr, [4,4]);
             
-            // 青線（当日基準線）
-            drawL(this.dataShifted, 'v', "#2962ff", 2.5, getYr);
+            // --- 基準線（青線）：直線描画ロジック ---
+            ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 2.5; ctx.beginPath();
+            let firstShift = true;
+            this.dataShiftedRaw.forEach(s => {
+                // データのインデックスを探す、なければ近似値
+                const idx = this.dataH1.findIndex(d => d.t >= s.t);
+                if (idx >= startIdx && idx <= endIdx + 1) { // 画面内または直後の場合
+                    const x = getX(idx), y = getYr(s.v);
+                    if(firstShift) { ctx.moveTo(x, y); firstShift = false; } else { ctx.lineTo(x, y); }
+                }
+            });
+            // 最新の23:00から翌日0:00(右端)へ直線を伸ばす
+            if (!firstShift) {
+                const lastShift = this.dataShiftedRaw[this.dataShiftedRaw.length - 1];
+                if(lastShift.t >= this.dataH1[startIdx].t) {
+                    const xEnd = getX(endIdx + 1), yEnd = getYr(lastShift.v);
+                    ctx.lineTo(xEnd, yEnd);
+                }
+            }
+            ctx.stroke();
 
+            // Pivot描画
             this.dataPvt.forEach(p => {
-                if(p.t >= finalStart - 86400 && p.t <= finalEnd) {
-                    const x = getX(p.t), nextX = getX(p.t + 86400);
+                const idx = this.dataH1.findIndex(d => d.t >= p.t);
+                if(idx >= startIdx && idx <= endIdx) {
+                    const nextDayT = p.t + 86400;
+                    const nextIdx = this.dataH1.findIndex(d => d.t >= nextDayT);
+                    const endX = nextIdx === -1 ? getX(endIdx + 1) : getX(nextIdx);
                     Object.entries(p.levels).forEach(([k, val]) => {
                         const y = getYp(val);
                         ctx.strokeStyle = k==='P'?"#fff":"rgba(255,255,255,0.2)";
-                        ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(nextX,y); ctx.stroke();
+                        ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(getX(idx),y); ctx.lineTo(endX,y); ctx.stroke();
                     });
                 }
             });
 
             if(this.mouseX > 0) {
-                const t = finalStart + (this.mouseX - 10) / (w - 75) * (finalEnd - finalStart);
-                const d = this.dataH1.find(i => Math.abs(i.t - t) < 1800);
+                const relX = (this.mouseX - 10) / (w - 75);
+                const hoverIdx = Math.round(startIdx + relX * viewCount);
+                const d = this.dataH1[Math.max(0, Math.min(total-1, hoverIdx))];
                 if(d) {
                     ctx.strokeStyle = "rgba(255,255,255,0.2)";
-                    ctx.beginPath(); ctx.moveTo(getX(d.t), 0); ctx.lineTo(getX(d.t), h); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(getX(hoverIdx), 0); ctx.lineTo(getX(hoverIdx), h); ctx.stroke();
                     const dObj = new Date(d.t*1000);
                     this.info.innerText = `${dObj.getMonth()+1}/${dObj.getDate()} ${dObj.getHours()}:00 P:${d.p.toFixed(3)}`;
                 }
@@ -234,14 +231,14 @@
             chart.dataPriceSMA = getSMA(chart.dataH1, 10, 'p');
             chart.dataPvt = calcAutoPivot7(chart.dataH1);
             
-            // 青線：23:00比率を2日後へ
-            const shiftedRaw = [];
+            // 基準線：23:00の純粋なデータポイントのみ抽出
+            const raw = [];
             chart.dataH1.forEach(d => {
                 if(new Date(d.t * 1000).getHours() === 23) {
-                    shiftedRaw.push({ t: d.t + (48-23)*3600, v: d.v });
+                    raw.push({ t: d.t + (48-23)*3600, v: d.v });
                 }
             });
-            chart.dataShifted = shiftedRaw;
+            chart.dataShiftedRaw = raw;
             chart.draw();
             statusEl.innerText = `${pair} 読み込み完了`;
         }
