@@ -129,7 +129,7 @@
             window.addEventListener('resize', () => this.draw());
         }
 
-        draw() {
+       draw() {
             const ctx = this.ctx;
             const rect = this.canvas.parentElement.getBoundingClientRect();
             this.canvas.width = rect.width * window.devicePixelRatio;
@@ -140,30 +140,51 @@
             ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
             if (this.dataH1.length === 0) return;
 
-            const pad = { top: 25, right: 10, bottom: 25, left: 10, gap: 20 };
+            const pad = { top: 30, right: 50, bottom: 25, left: 10, gap: 20 };
             const totalPoints = this.dataH1.length;
             const viewRange = parseInt(this.zoom);
             const startIdx = Math.max(0, Math.floor((totalPoints - viewRange) * (parseInt(this.scroll) / 100)));
             const endIdx = Math.min(totalPoints - 1, startIdx + viewRange);
 
             const getX = (idx) => pad.left + (idx - startIdx) / (endIdx - startIdx) * (w - pad.left - pad.right);
-            const splitY = h * 0.5, pTop = pad.top, pBot = splitY - pad.gap/2, rTop = splitY + pad.gap/2, rBot = h - pad.bottom;
+            const splitY = h * 0.55; // 価格エリアを少し広めに (55%) 
+            const pTop = pad.top, pBot = splitY - pad.gap/2, rTop = splitY + pad.gap/2, rBot = h - pad.bottom;
 
             let visible = this.dataH1.slice(startIdx, endIdx + 1);
+            let pList = visible.map(d => d.p).filter(p => !isNaN(p));
+            const pLo = pList.length > 0 ? Math.min(...pList) : 0;
+            const pHi = pList.length > 0 ? Math.max(...pList) : 1;
+            const pRange = pHi - pLo || 0.001;
+            
+            // 価格の上下に5%の余白を持たせて見やすくする
+            const getYPrice = (p) => pBot - ((p - (pLo - pRange * 0.05)) / (pRange * 1.1)) * (pBot - pTop);
+            
+            // 比率側の計算
             let vList = visible.map(d => d.v).filter(v => !isNaN(v));
             const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
-            
-            let pList = visible.map(d => d.p).filter(p => !isNaN(p));
-            const pLo = pList.length > 0 ? Math.min(...pList) * 0.999 : 0;
-            const pHi = pList.length > 0 ? Math.max(...pList) * 1.001 : 1;
-            const pR = pHi - pLo || 0.001;
-
             const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
-            const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
 
-            // 境界線
-            ctx.strokeStyle = "#2b2b43"; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(0, splitY); ctx.lineTo(w, splitY); ctx.stroke();
+            // 1. グリッド線の描画 (視認性向上)
+            ctx.strokeStyle = "#2b2b43"; ctx.lineWidth = 0.5;
+            // 水平グリッド
+            [pTop, (pTop+pBot)/2, pBot, rTop, (rTop+rBot)/2, rBot].forEach(y => {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+            });
+
+            // 2. Pivot (PP) を目立たせる
+            if (this.dataPivot.length > 0) {
+                ctx.setLineDash([2, 2]);
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+                for (let i = startIdx; i <= endIdx; i++) {
+                    const curT = this.dataH1[i].t;
+                    const pvt = this.dataPivot.find(p => p.t <= curT && p.t + 86400 > curT);
+                    if (pvt) {
+                        const x = getX(i), yPP = getYPrice(pvt.levels.PP);
+                        ctx.beginPath(); ctx.moveTo(x, yPP); ctx.lineTo(x + (w/viewRange), yPP); ctx.stroke();
+                    }
+                }
+                ctx.setLineDash([]);
+            }
 
             const drawLine = (dataArr, field, color, weight, yFunc, dash = []) => {
                 if (!dataArr || dataArr.length === 0) return;
@@ -179,22 +200,21 @@
                 ctx.stroke(); ctx.setLineDash([]);
             };
 
-            // 描画実行
-            drawLine(this.dataH1, 'p', "rgba(255,255,255,0.2)", 1, getYPrice);
-            drawLine(this.dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);
-            drawLine(this.dataH1, 'v', "#ff9800", 1, getYRatio);
-            drawLine(this.dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);
+            // 3. 価格ライン（少し太く、発光感を出す）
+            drawLine(this.dataH1, 'p', "rgba(255, 255, 255, 0.5)", 1.5, getYPrice); // 白い価格線
+            drawLine(this.dataPriceSMA, 'v', "#00bcd4", 2.5, getYPrice);        // 水色の太いSMA [cite: 143]
 
-            if (this.dataPivot.length > 0) {
-                ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 1;
-                for (let i = startIdx; i <= endIdx; i++) {
-                    const curT = this.dataH1[i].t;
-                    const pvt = this.dataPivot.find(p => p.t <= curT && p.t + 86400 > curT);
-                    if (pvt) {
-                        const x = getX(i), yPP = getYPrice(pvt.levels.PP);
-                        ctx.beginPath(); ctx.moveTo(x, yPP); ctx.lineTo(x + (w/viewRange), yPP); ctx.stroke();
-                    }
-                }
+            // 4. 比率ライン
+            drawLine(this.dataH1, 'v', "#ff9800", 1, getYRatio);               // オレンジの比率線 [cite: 142]
+            drawLine(this.dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);    // 緑の破線SMA [cite: 142]
+
+            // 5. 右端に現在値を表示
+            const lastData = this.dataH1[endIdx];
+            if (lastData && !isNaN(lastData.p)) {
+                ctx.fillStyle = "#fff"; ctx.font = "bold 10px sans-serif";
+                ctx.fillText(lastData.p.toFixed(this.pair.includes("JPY") ? 3 : 5), w - 45, getYPrice(lastData.p) + 4);
+            }
+        }
             }
         }
     }
@@ -226,3 +246,4 @@
 </script>
 </body>
 </html>
+
