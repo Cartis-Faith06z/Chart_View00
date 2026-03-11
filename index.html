@@ -129,7 +129,7 @@
             window.addEventListener('resize', () => this.draw());
         }
 
-        draw() {
+   draw() {
             const ctx = this.ctx;
             const rect = this.canvas.parentElement.getBoundingClientRect();
             this.canvas.width = rect.width * window.devicePixelRatio;
@@ -137,21 +137,73 @@
             ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
             const w = rect.width, h = rect.height;
 
+            // 1. 背景と基本設定
             ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
             if (this.dataH1.length === 0) return;
 
-            // 読み込み確認用テキスト
-            ctx.fillStyle = "#00bcd4";
-            ctx.font = "12px sans-serif";
-            ctx.fillText(`H1:${this.dataH1.length}件 / Pivot:${this.dataPivot.length}件`, 10, 20);
-            
-            // センターライン（仮）
-            ctx.strokeStyle = "rgba(255, 152, 0, 0.5)";
-            ctx.setLineDash([5, 5]);
-            ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
-            ctx.setLineDash([]);
+            const pad = { top: 20, right: 10, bottom: 25, left: 10, gap: 15 };
+            const totalPoints = this.dataH1.length;
+            const viewRange = parseInt(this.zoom);
+            const startIdx = Math.max(0, Math.floor((totalPoints - viewRange) * (parseInt(this.scroll) / 100)));
+            const endIdx = Math.min(totalPoints - 1, startIdx + viewRange);
+
+            // 2. 座標変換の計算
+            const getX = (idx) => pad.left + (idx - startIdx) / (endIdx - startIdx) * (w - pad.left - pad.right);
+            const splitY = h * 0.5, pTop = pad.top, pBot = splitY - pad.gap/2, rTop = splitY + pad.gap/2, rBot = h - pad.bottom;
+
+            let visible = this.dataH1.slice(startIdx, endIdx + 1);
+            let vList = visible.map(d => d.v).filter(v => !isNaN(v));
+            const vLo = Math.min(...vList) - 1, vHi = Math.max(...vList) + 1, vR = vHi - vLo || 1;
+            let pList = visible.map(d => d.p).filter(p => !isNaN(p));
+            const pLo = pList.length > 0 ? Math.min(...pList) * 0.999 : 0;
+            const pHi = pList.length > 0 ? Math.max(...pList) * 1.001 : 1;
+            const pR = pHi - pLo || 0.001;
+
+            const getYRatio = (v) => rBot - ((v - vLo) / vR) * (rBot - rTop);
+            const getYPrice = (p) => pBot - ((p - pLo) / pR) * (pBot - pTop);
+
+            // 3. 補助線の描画
+            ctx.strokeStyle = "#2b2b43"; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(0, splitY); ctx.lineTo(w, splitY); ctx.stroke(); // 上下境界線
+
+            // 4. ライン描画用の共通関数
+            const drawLine = (dataArr, field, color, weight, yFunc, dash = []) => {
+                if (!dataArr || dataArr.length === 0) return;
+                ctx.strokeStyle = color; ctx.lineWidth = weight; ctx.setLineDash(dash);
+                ctx.beginPath();
+                let first = true;
+                for (let i = startIdx; i <= endIdx; i++) {
+                    const item = dataArr[i];
+                    if (!item || isNaN(item[field])) continue;
+                    const x = getX(i), y = yFunc(item[field]);
+                    if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+                }
+                ctx.stroke(); ctx.setLineDash([]);
+            };
+
+            // 5. 各ラインの描画
+            drawLine(this.dataH1, 'p', "rgba(255,255,255,0.2)", 1, getYPrice); // 生価格
+            drawLine(this.dataPriceSMA, 'v', "#00bcd4", 2, getYPrice);        // 価格SMA
+            drawLine(this.dataH1, 'v', "#ff9800", 1, getYRatio);               // 生比率
+            drawLine(this.dataSMA, 'v', "#4caf50", 1.5, getYRatio, [4, 4]);    // 比率SMA
+
+            // 6. Pivotの描画 (データがある場合のみ)
+            if (this.dataPivot.length > 0) {
+                ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 1;
+                for (let i = startIdx; i <= endIdx; i++) {
+                    const curT = this.dataH1[i].t;
+                    const pvt = this.dataPivot.find(p => p.t <= curT && p.t + 86400 > curT);
+                    if (pvt) {
+                        const x = getX(i), yPP = getYPrice(pvt.levels.PP);
+                        ctx.beginPath(); ctx.moveTo(x, yPP); ctx.lineTo(x + (w/viewRange), yPP); ctx.stroke();
+                    }
+                }
+            }
+
+            // ヘッダー情報更新
+            ctx.fillStyle = "#00bcd4"; ctx.font = "10px sans-serif";
+            ctx.fillText(`${this.pair} H1:${this.dataH1.length} / Pvt:${this.dataPivot.length}`, 10, 15);
         }
-    }
 
     // --- イベントリスナー ---
     document.getElementById('fileIn').addEventListener('change', async (e) => {
@@ -179,3 +231,4 @@
 
 </body>
 </html>
+
