@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard v1.1.1</title>
+    <title>FX Dashboard v1.1.2</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --orange: #ff9800; --green: #4caf50; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -33,7 +33,7 @@
         </label>
         <span id="status">ファイルを読み込んでください</span>
     </div>
-    <div class="version">v1.1.1</div>
+    <div class="version">v1.1.2</div>
 </header>
 
 <div id="dashboard"></div>
@@ -85,9 +85,7 @@
             this.pair = pair;
             this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = [];
             this.dataPvt = []; this.dataShiftedRaw = [];
-            this.zoom = 120; 
-            this.scroll = 100; // 初期値を100（最新）に設定
-            this.mouseX = -1;
+            this.zoom = 120; this.scroll = 100; this.mouseX = -1;
             this.initDOM();
         }
 
@@ -132,12 +130,11 @@
 
             const total = this.dataH1.length;
             const viewCount = Math.min(this.zoom, total);
-            
-            // スライダー：右(100)が最新、左(0)が最古になるようインデックスを計算
             const maxStartIdx = total - viewCount;
             const startIdx = Math.floor(maxStartIdx * (this.scroll / 100));
             const endIdx = startIdx + viewCount - 1;
 
+            // 未来(翌日0:00)の仮想インデックスを考慮した座標計算
             const getX = (idx) => 10 + (idx - startIdx) / (viewCount) * (w - 75);
             const splitY = h * 0.55, pBot = splitY - 10, rTop = splitY + 10, rBot = h - 20;
 
@@ -170,20 +167,29 @@
             drawL(this.dataH1, 'v', "#ff9800", 1, getYr);
             drawL(this.dataSMA, 'v', "#4caf50", 1.5, getYr, [4,4]);
             
-            // 基準線（青線）
+            // --- 基準線（青線）：当日仮ラインを含む描画 ---
             ctx.strokeStyle = "#2962ff"; ctx.lineWidth = 2.5; ctx.beginPath();
-            let firstShift = true;
+            let lastShiftPoint = null;
             this.dataShiftedRaw.forEach(s => {
                 const idx = this.dataH1.findIndex(d => d.t >= s.t);
                 if (idx >= startIdx && idx <= endIdx + 1) {
                     const x = getX(idx), y = getYr(s.v);
-                    if(firstShift) { ctx.moveTo(x, y); firstShift = false; } else { ctx.lineTo(x, y); }
+                    if(!lastShiftPoint) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+                    lastShiftPoint = { x, y, v: s.v };
+                } else if (idx < startIdx) {
+                    // 画面外左側にある最新のポイントを保持
+                    lastShiftPoint = { v: s.v, isLeft: true };
                 }
             });
-            if (!firstShift) {
-                const lastShift = this.dataShiftedRaw[this.dataShiftedRaw.length - 1];
-                if(lastShift.t >= this.dataH1[startIdx].t) {
-                    const xEnd = getX(endIdx + 1), yEnd = getYr(lastShift.v);
+
+            // 当日(翌日0:00)への仮想延長ライン
+            if (lastShiftPoint) {
+                const xEnd = getX(endIdx + 1); // データの1つ先(翌日0:00相当)
+                const yEnd = getYr(lastShiftPoint.v);
+                if (lastShiftPoint.isLeft) {
+                    ctx.moveTo(getX(startIdx), yEnd);
+                    ctx.lineTo(xEnd, yEnd);
+                } else {
                     ctx.lineTo(xEnd, yEnd);
                 }
             }
@@ -193,9 +199,8 @@
             this.dataPvt.forEach(p => {
                 const idx = this.dataH1.findIndex(d => d.t >= p.t);
                 if(idx >= startIdx && idx <= endIdx) {
-                    const nextDayT = p.t + 86400;
-                    const nextIdx = this.dataH1.findIndex(d => d.t >= nextDayT);
-                    const endX = nextIdx === -1 || nextIdx > endIdx ? getX(endIdx + 1) : getX(nextIdx);
+                    const nextIdx = this.dataH1.findIndex(d => d.t >= p.t + 86400);
+                    const endX = (nextIdx === -1 || nextIdx > endIdx) ? getX(endIdx + 1) : getX(nextIdx);
                     Object.entries(p.levels).forEach(([k, val]) => {
                         const y = getYp(val);
                         ctx.strokeStyle = k==='P'?"#fff":"rgba(255,255,255,0.2)";
@@ -234,6 +239,7 @@
             const raw = [];
             chart.dataH1.forEach(d => {
                 if(new Date(d.t * 1000).getHours() === 23) {
+                    // 23:00比率を2日後(48時間後)の0:00の基準として登録
                     raw.push({ t: d.t + (48-23)*3600, v: d.v });
                 }
             });
