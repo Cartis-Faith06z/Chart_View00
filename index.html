@@ -3,34 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard v1.2.3 (Mobile Optimized)</title>
+    <title>FX Dashboard v1.2.4 (Sync Scale)</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; }
         * { box-sizing: border-box; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
-        
         header { padding: 8px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; }
         .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
         .file-label { background: var(--blue); color: white; padding: 8px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
         input[type="file"] { display: none; }
         #pivot-input { width: 100%; height: 45px; background: #2a2e39; border: 1px solid #363c4e; color: #fff; font-size: 11px; border-radius: 4px; padding: 6px; resize: none; }
-        
         #dashboard { flex-grow: 1; overflow-y: auto; padding: 8px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: start; }
-        
-        /* スマホ用：縦1列に切り替え */
-        @media (max-width: 768px) {
-            #dashboard { grid-template-columns: 1fr; }
-            .chart-card { height: 320px !important; } /* スマホでは高さを少し抑える */
-        }
-
+        @media (max-width: 768px) { #dashboard { grid-template-columns: 1fr; } .chart-card { height: 320px !important; } }
         .chart-card { background: var(--panel); border-radius: 8px; border: 1px solid #333; height: 380px; display: flex; flex-direction: column; overflow: hidden; }
         .chart-header { padding: 6px 10px; background: rgba(255,255,255,0.05); font-size: 11px; display: flex; justify-content: space-between; border-bottom: 1px solid #333; flex-shrink: 0; }
         .canvas-wrapper { flex-grow: 1; position: relative; cursor: crosshair; touch-action: none; overflow: hidden; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        
         .controls { padding: 8px 10px; background: var(--panel); border-top: 1px solid #333; flex-shrink: 0; }
-        .sld-group { display: flex; align-items: center; gap: 8px; }
-        input[type="range"] { flex-grow: 1; height: 30px; accent-color: var(--blue); cursor: pointer; }
+        input[type="range"] { width: 100%; height: 30px; accent-color: var(--blue); cursor: pointer; }
     </style>
 </head>
 <body>
@@ -40,10 +30,10 @@
         <label class="file-label">📂 CSV選択
             <input type="file" id="fileIn" multiple accept=".csv, text/csv">
         </label>
-        <div id="status" style="font-size:10px; color:var(--cyan)">CSV & Pivot Wait...</div>
-        <div style="font-size:10px; color:#5d606b">v1.2.3</div>
+        <div id="status" style="font-size:10px; color:var(--cyan)">CSV & Pivot Syncing...</div>
+        <div style="font-size:10px; color:#5d606b">v1.2.4</div>
     </div>
-    <textarea id="pivot-input" placeholder="あい証券のPivotを貼り付け..."></textarea>
+    <textarea id="pivot-input" placeholder="あい証券のPivot表を貼り付け..."></textarea>
 </header>
 
 <div id="dashboard"></div>
@@ -53,105 +43,61 @@
     const statusEl = document.getElementById('status');
     const pivotInput = document.getElementById('pivot-input');
     const chartMap = new Map();
-    
-    const CONFIG = {
-        "USDJPY": { threshold: 2.5 }, "GBPUSD": { threshold: 2.0 },
-        "EURUSD": { threshold: 1.5 }, "GOLD": { threshold: 5.0 }
-    };
+    const CONFIG = { "USDJPY": { th: 2.5 }, "GBPUSD": { th: 2.0 }, "EURUSD": { th: 1.5 }, "GOLD": { th: 5.0 } };
 
     function parseDate(s) {
         if (!s) return null;
-        const clean = s.trim().replace(/\./g, '/').replace(/-/g, '/');
-        const dt = new Date(clean);
+        const dt = new Date(s.trim().replace(/\./g, '/').replace(/-/g, '/'));
         return isNaN(dt.getTime()) ? null : Math.floor(dt.getTime() / 1000);
     }
 
-    function parseTextPivot(text) {
-        const lines = text.split('\n');
-        const results = {};
-        lines.forEach(line => {
-            const parts = line.split(/\s+/).filter(p => p.length > 0);
-            if (parts.length < 5) return;
-            let pairRaw = parts[0].replace('/', '').toUpperCase();
-            if (pairRaw.includes("GOLD") || pairRaw.includes("XAU")) pairRaw = "GOLD";
-            if (CONFIG[pairRaw]) {
-                const nums = parts.slice(1).map(p => parseFloat(p)).filter(n => !isNaN(n));
-                if (nums.length >= 5) results[pairRaw] = { P: nums[3], R1: nums[2], R2: nums[1], S1: nums[4], S2: nums[5] };
-            }
-        });
-        return results;
+    // 数値の桁数（スケール）を合わせる関数
+    function syncScale(targetVal, baseVal) {
+        if (isNaN(targetVal) || isNaN(baseVal)) return targetVal;
+        const targetStr = targetVal.toString().replace('.', '');
+        const baseLog = Math.floor(Math.log10(Math.abs(baseVal)));
+        const targetLog = Math.floor(Math.log10(Math.abs(parseFloat(targetStr))));
+        return parseFloat(targetStr) * Math.pow(10, baseLog - targetLog);
     }
 
     class FXChart {
         constructor(pair) {
-            this.pair = pair;
-            this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = []; this.dataShiftedTrend = [];
-            this.pivotValues = null; this.zoom = 120; this.mouseX = -1;
-            this.initDOM();
+            this.pair = pair; this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = []; this.dataShiftedTrend = [];
+            this.rawPivot = null; this.zoom = 120; this.mouseX = -1; this.initDOM();
         }
 
         initDOM() {
             const card = document.createElement('div');
             card.className = 'chart-card';
-            card.innerHTML = `
-                <div class="chart-header">
-                    <span style="color:var(--cyan);font-weight:bold">${this.pair}</span>
-                    <span class="info-display" style="font-family:monospace; font-size:10px;">-</span>
-                </div>
-                <div class="canvas-wrapper"><canvas></canvas></div>
-                <div class="controls">
-                    <div class="sld-group"><input type="range" class="zoom-sld" min="24" max="500" value="120"></div>
-                </div>
-            `;
+            card.innerHTML = `<div class="chart-header"><span style="color:var(--cyan);font-weight:bold">${this.pair}</span><span class="info-display" style="font-family:monospace; font-size:10px;">-</span></div><div class="canvas-wrapper"><canvas></canvas></div><div class="controls"><input type="range" class="zoom-sld" min="24" max="500" value="120"></div>`;
             dashboard.appendChild(card);
-            this.canvas = card.querySelector('canvas');
-            this.ctx = this.canvas.getContext('2d');
-            this.info = card.querySelector('.info-display');
-            
+            this.canvas = card.querySelector('canvas'); this.ctx = this.canvas.getContext('2d'); this.info = card.querySelector('.info-display');
             card.querySelector('.zoom-sld').oninput = (e) => { this.zoom = parseInt(e.target.value); this.draw(); };
-            
             const handleMove = (e) => {
                 const rect = this.canvas.getBoundingClientRect();
                 const clientX = e.clientX || (e.touches && e.touches[0]?.clientX);
-                if (clientX !== undefined) {
-                    this.mouseX = clientX - rect.left;
-                    this.draw();
-                }
+                if (clientX !== undefined) { this.mouseX = clientX - rect.left; this.draw(); }
             };
-            this.canvas.addEventListener('mousemove', handleMove);
-            this.canvas.addEventListener('touchstart', handleMove, {passive: true});
-            this.canvas.addEventListener('touchmove', handleMove, {passive: true});
+            this.canvas.addEventListener('mousemove', handleMove); this.canvas.addEventListener('touchstart', handleMove, {passive:true}); this.canvas.addEventListener('touchmove', handleMove, {passive:true});
         }
 
-        update(h1, pvt) {
+        update(h1, rawPvt) {
             if(h1) {
                 this.dataH1 = h1;
-                const sma = (d, n, f) => d.map((_, i) => {
-                    if (i < n - 1) return { t: d[i].t, v: NaN };
-                    let sum = 0; for (let j = 0; j < n; j++) sum += d[i-j][f];
-                    return { t: d[i].t, v: sum / n };
-                });
-                this.dataSMA = sma(this.dataH1, 10, 'v');
-                this.dataPriceSMA = sma(this.dataH1, 10, 'p');
-                this.dataShiftedTrend = [];
-                let currentBase = NaN;
-                this.dataH1.forEach(d => {
-                    if (new Date(d.t * 1000).getHours() === 23) currentBase = d.v;
-                    this.dataShiftedTrend.push({ t: d.t, v: currentBase });
-                });
+                const sma = (d, n, f) => d.map((_, i) => (i < n - 1) ? { t: d[i].t, v: NaN } : { t: d[i].t, v: d.slice(i-n+1, i+1).reduce((acc, curr) => acc + curr[f], 0) / n });
+                this.dataSMA = sma(this.dataH1, 10, 'v'); this.dataPriceSMA = sma(this.dataH1, 10, 'p');
+                this.dataShiftedTrend = []; let base = NaN;
+                this.dataH1.forEach(d => { if (new Date(d.t * 1000).getHours() === 23) base = d.v; this.dataShiftedTrend.push({ t: d.t, v: base }); });
             }
-            if(pvt) this.pivotValues = pvt;
+            if(rawPvt) this.rawPivot = rawPvt;
             this.draw();
         }
 
         draw() {
-            const ctx = this.ctx;
-            const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+            const ctx = this.ctx; const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
             if (w === 0 || h === 0) return;
-            const dpr = window.devicePixelRatio || 1;
-            this.canvas.width = w * dpr; this.canvas.height = h * dpr;
-            ctx.scale(dpr, dpr);
-            ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
+            const dpr = window.devicePixelRatio || 1; this.canvas.width = w * dpr; this.canvas.height = h * dpr;
+            ctx.scale(dpr, dpr); ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
             if (this.dataH1.length === 0) return;
 
             const viewCount = Math.min(this.zoom, this.dataH1.length);
@@ -161,6 +107,7 @@
             
             const visible = this.dataH1.slice(startIdx);
             const pL = visible.map(d => d.p).filter(p => !isNaN(p));
+            const basePrice = pL[pL.length-1];
             const pLo = Math.min(...pL), pHi = Math.max(...pL), pR = (pHi - pLo || 0.01) * 1.3;
             const getYp = (p) => (splitY - 20) - ((p - (pLo - pR*0.1)) / pR) * (splitY - 40);
 
@@ -168,38 +115,36 @@
             const vLo = Math.min(...vL) - 2, vHi = Math.max(...vL) + 2, vR = vHi - vLo || 1;
             const getYr = (v) => (h - 20) - ((v - vLo) / vR) * (h - splitY - 30);
 
-            const drawPath = (data, field, color, width, yFunc, dash = []) => {
-                ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
-                ctx.beginPath(); let first = true;
+            const drawPath = (data, field, col, wd, yf, dash = []) => {
+                ctx.strokeStyle = col; ctx.lineWidth = wd; ctx.setLineDash(dash); ctx.beginPath(); let f = true;
                 for(let i = startIdx; i < this.dataH1.length; i++){
                     const val = data[i]?.[field]; if(isNaN(val)) continue;
-                    const x = getX(i), y = yFunc(val);
-                    if(first) { ctx.moveTo(x,y); first=false; } else ctx.lineTo(x,y);
+                    const x = getX(i), y = yf(val); if(f) { ctx.moveTo(x,y); f=false; } else ctx.lineTo(x,y);
                 }
                 ctx.stroke(); ctx.setLineDash([]);
             };
 
-            // 下段
             drawPath(this.dataH1, 'v', "#2962ff", 2, getYr);
             drawPath(this.dataSMA, 'v', "#ffeb3b", 1.5, getYr, [4, 2]);
             drawPath(this.dataShiftedTrend, 'v', "#f44336", 2, getYr);
-            const th = CONFIG[this.pair].threshold;
-            ctx.strokeStyle = "#f44336"; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+            
+            const th = CONFIG[this.pair].th;
+            ctx.strokeStyle = "#f44336"; ctx.setLineDash([3,3]);
             [1, -1].forEach(dir => {
-                ctx.beginPath();
-                for(let i = startIdx; i < this.dataH1.length; i++){
+                ctx.beginPath(); for(let i = startIdx; i < this.dataH1.length; i++){
                     const b = this.dataShiftedTrend[i]?.v; if(!isNaN(b)) ctx.lineTo(getX(i), getYr(b + dir * th));
                 }
                 ctx.stroke();
             });
 
-            // 上段
             drawPath(this.dataH1, 'p', "#fff", 1, getYp);
             drawPath(this.dataPriceSMA, 'v', "#ffeb3b", 1, getYp, [2, 2]);
             
-            if(this.pivotValues) {
-                Object.entries(this.pivotValues).forEach(([k, val]) => {
-                    const y = getYp(val);
+            // Pivotのスケール同期と描画
+            if(this.rawPivot) {
+                Object.entries(this.rawPivot).forEach(([k, val]) => {
+                    const syncedVal = syncScale(val, basePrice);
+                    const y = getYp(syncedVal);
                     ctx.strokeStyle = k==='P'?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.15)";
                     ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w-70, y); ctx.stroke();
                     ctx.fillStyle = ctx.strokeStyle; ctx.font = "9px Arial"; ctx.fillText(k, w-65, y+3);
@@ -207,22 +152,19 @@
             }
 
             if(this.mouseX > 0) {
-                const hIdx = Math.round(startIdx + (this.mouseX - 10) / (w - 75) * viewCount);
-                const d = this.dataH1[Math.max(0, Math.min(this.dataH1.length-1, hIdx))];
+                const idx = Math.round(startIdx + (this.mouseX - 10) / (w - 75) * viewCount);
+                const d = this.dataH1[Math.max(0, Math.min(this.dataH1.length-1, idx))];
                 if(d) {
                     const dt = new Date(d.t * 1000);
-                    const timeStr = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}h`;
-                    this.info.innerHTML = `<span style="color:var(--cyan)">${timeStr}</span> P:${d.p.toFixed(3)} B:${d.v.toFixed(1)}`;
+                    this.info.innerHTML = `<span style="color:var(--cyan)">${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}h</span> P:${d.p.toFixed(3)} B:${d.v.toFixed(1)}`;
                 }
             }
         }
     }
 
-    Object.keys(CONFIG).forEach(pair => chartMap.set(pair, new FXChart(pair)));
-    
     document.getElementById('fileIn').onchange = async (e) => {
         const files = Array.from(e.target.files);
-        statusEl.innerText = "Loading...";
+        statusEl.innerText = "Syncing...";
         for (const file of files) {
             const text = await file.text();
             const pair = Object.keys(CONFIG).find(k => file.name.toUpperCase().includes(k));
@@ -232,16 +174,27 @@
     };
 
     pivotInput.oninput = (e) => {
-        const pvtData = parseTextPivot(e.target.value);
-        Object.entries(pvtData).forEach(([pair, data]) => { if(chartMap.has(pair)) chartMap.get(pair).update(null, data); });
+        const lines = e.target.value.split('\n');
+        lines.forEach(line => {
+            const p = line.split(/\s+/).filter(x => x.length > 0);
+            if (p.length < 5) return;
+            let pair = p[0].replace('/', '').toUpperCase();
+            if (pair.includes("GOLD") || pair.includes("XAU")) pair = "GOLD";
+            if (CONFIG[pair]) {
+                const n = p.slice(1).map(x => parseFloat(x)).filter(v => !isNaN(v));
+                if (n.length >= 5) chartMap.get(pair).update(null, { P: n[3], R1: n[2], R2: n[1], S1: n[4], S2: n[5] });
+            }
+        });
     };
 
     function parseH1CSV(text) {
-        return text.split(/\r?\n/).filter(l => l.includes(',')).map(line => {
-            const c = line.split(',');
+        return text.split(/\r?\n/).filter(l => l.includes(',')).map(l => {
+            const c = l.split(',');
             return { t: parseDate(c[0]), v: parseFloat(c[2]), p: c[3] ? parseFloat(c[3]) : NaN };
         }).filter(d => d.t !== null).sort((a, b) => a.t - b.t);
     }
+
+    Object.keys(CONFIG).forEach(p => chartMap.set(p, new FXChart(p)));
 </script>
 </body>
 </html>
