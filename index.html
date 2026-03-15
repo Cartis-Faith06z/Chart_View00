@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard v1.2.1</title>
+    <title>FX Dashboard v1.2.2</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --orange: #ff9800; --green: #4caf50; --red: #f44336; --yellow: #ffeb3b; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -20,7 +20,6 @@
         .controls { padding: 5px 10px; background: var(--panel); font-size: 10px; }
         .sld-group { display: flex; align-items: center; gap: 8px; }
         input[type="range"] { flex-grow: 1; height: 25px; accent-color: var(--blue); }
-        .legend { display: flex; gap: 10px; font-size: 10px; margin-top: 5px; opacity: 0.8; }
     </style>
 </head>
 <body>
@@ -31,9 +30,9 @@
             <input type="file" id="fileIn" multiple accept=".csv, text/csv">
         </label>
         <div id="status" style="font-size:11px; color:var(--cyan)">CSVとPivotを読み込んでください</div>
-        <div style="font-size:10px; color:#5d606b">v1.2.1</div>
+        <div style="font-size:10px; color:#5d606b">v1.2.2</div>
     </div>
-    <textarea id="pivot-input" placeholder="【Pivot貼り付け】 EUR/USD 1.1620 1.1598 ... のような表を貼り付けてください"></textarea>
+    <textarea id="pivot-input" placeholder="【Pivot貼り付け】 EUR/USD 1.1620 1.1598 ... の表を貼り付けてください"></textarea>
 </header>
 
 <div id="dashboard"></div>
@@ -45,10 +44,8 @@
     const chartMap = new Map();
     
     const CONFIG = {
-        "USDJPY": { threshold: 2.5 },
-        "GBPUSD": { threshold: 2.0 },
-        "EURUSD": { threshold: 1.5 },
-        "GOLD":    { threshold: 5.0 }
+        "USDJPY": { threshold: 2.5 }, "GBPUSD": { threshold: 2.0 },
+        "EURUSD": { threshold: 1.5 }, "GOLD": { threshold: 5.0 }
     };
 
     function parseDate(s) {
@@ -65,18 +62,10 @@
             const parts = line.split(/\s+/).filter(p => p.length > 0);
             if (parts.length < 5) return;
             let pairRaw = parts[0].replace('/', '').toUpperCase();
-            // GOLD対応
             if (pairRaw.includes("GOLD") || pairRaw.includes("XAU")) pairRaw = "GOLD";
-
             if (CONFIG[pairRaw]) {
-                // 数値らしきものを抽出
                 const nums = parts.slice(1).map(p => parseFloat(p)).filter(n => !isNaN(n));
-                if (nums.length >= 5) {
-                    // あい証券の形式想定: HBOP(0), R2(1), R1(2), Pivot(3), S1(4), S2(5), LBOP(6)
-                    results[pairRaw] = {
-                        P: nums[3], R1: nums[2], R2: nums[1], S1: nums[4], S2: nums[5]
-                    };
-                }
+                if (nums.length >= 5) results[pairRaw] = { P: nums[3], R1: nums[2], R2: nums[1], S1: nums[4], S2: nums[5] };
             }
         });
         return results;
@@ -85,9 +74,8 @@
     class FXChart {
         constructor(pair) {
             this.pair = pair;
-            this.dataH1 = []; this.dataSMA = []; this.dataShiftedTrend = [];
-            this.pivotValues = null; // 貼り付けられたPivot
-            this.zoom = 120; this.mouseX = -1;
+            this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = []; this.dataShiftedTrend = [];
+            this.pivotValues = null; this.zoom = 120; this.mouseX = -1;
             this.initDOM();
         }
 
@@ -109,14 +97,12 @@
             this.ctx = this.canvas.getContext('2d');
             this.info = card.querySelector('.info-display');
             card.querySelector('.zoom-sld').oninput = (e) => { this.zoom = parseInt(e.target.value); this.draw(); };
-            
             const handleMove = (e) => {
                 const rect = this.canvas.getBoundingClientRect();
                 this.mouseX = (e.clientX || (e.touches && e.touches[0]?.clientX)) - rect.left;
                 this.draw();
             };
-            this.canvas.onmousemove = handleMove;
-            this.canvas.ontouchmove = handleMove;
+            this.canvas.onmousemove = handleMove; this.canvas.ontouchmove = handleMove;
         }
 
         update(h1, pvt) {
@@ -127,7 +113,8 @@
                     let sum = 0; for (let j = 0; j < n; j++) sum += d[i-j][f];
                     return { t: d[i].t, v: sum / n };
                 });
-                this.dataSMA = sma(this.dataH1, 10, 'v');
+                this.dataSMA = sma(this.dataH1, 10, 'v'); // 比率の10SMA
+                this.dataPriceSMA = sma(this.dataH1, 10, 'p'); // 価格の10SMA
                 this.dataShiftedTrend = [];
                 let currentBase = NaN;
                 this.dataH1.forEach(d => {
@@ -163,38 +150,36 @@
             const vLo = Math.min(...vL) - 2, vHi = Math.max(...vL) + 2, vR = vHi - vLo || 1;
             const getYr = (v) => (h - 20) - ((v - vLo) / vR) * (h - splitY - 30);
 
-            // 下段：比率、SMA、基準線、閾値
             const drawPath = (data, field, color, width, yFunc, dash = []) => {
                 ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
                 ctx.beginPath(); let first = true;
                 for(let i = startIdx; i < this.dataH1.length; i++){
-                    const val = data[i]?.[field];
-                    if(isNaN(val)) continue;
+                    const val = data[i]?.[field]; if(isNaN(val)) continue;
                     const x = getX(i), y = yFunc(val);
                     if(first) { ctx.moveTo(x,y); first=false; } else ctx.lineTo(x,y);
                 }
                 ctx.stroke(); ctx.setLineDash([]);
             };
 
-            drawPath(this.dataH1, 'v', "#2962ff", 2, getYr); // 買い比率(青)
-            drawPath(this.dataSMA, 'v', "#ffeb3b", 1.5, getYr, [4, 2]); // 10SMA(黄)
+            // 下段
+            drawPath(this.dataH1, 'v', "#2962ff", 2, getYr); // 比率(青)
+            drawPath(this.dataSMA, 'v', "#ffeb3b", 1.5, getYr, [4, 2]); // 比率SMA(黄)
             drawPath(this.dataShiftedTrend, 'v', "#f44336", 2, getYr); // 基準線(赤)
-
             const th = CONFIG[this.pair].threshold;
             ctx.strokeStyle = "#f44336"; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
-            ctx.beginPath();
-            for(let i = startIdx; i < this.dataH1.length; i++){
-                const b = this.dataShiftedTrend[i]?.v; if(!isNaN(b)) ctx.lineTo(getX(i), getYr(b+th));
-            }
-            ctx.stroke();
-            ctx.beginPath();
-            for(let i = startIdx; i < this.dataH1.length; i++){
-                const b = this.dataShiftedTrend[i]?.v; if(!isNaN(b)) ctx.lineTo(getX(i), getYr(b-th));
-            }
-            ctx.stroke(); ctx.setLineDash([]);
+            [1, -1].forEach(dir => {
+                ctx.beginPath();
+                for(let i = startIdx; i < this.dataH1.length; i++){
+                    const b = this.dataShiftedTrend[i]?.v; if(!isNaN(b)) ctx.lineTo(getX(i), getYr(b + dir * th));
+                }
+                ctx.stroke();
+            });
+            ctx.setLineDash([]);
 
-            // 上段：価格 & Pivot表示
-            drawPath(this.dataH1, 'p', "#fff", 1, getYp);
+            // 上段
+            drawPath(this.dataH1, 'p', "#fff", 1, getYp); // 価格(白)
+            drawPath(this.dataPriceSMA, 'v', "#ffeb3b", 1, getYp, [2, 2]); // 価格SMA(黄点線)
+            
             if(this.pivotValues) {
                 Object.entries(this.pivotValues).forEach(([k, val]) => {
                     const y = getYp(val);
@@ -204,24 +189,22 @@
                 });
             }
 
-            // マウスオーバー（日時追加）
             if(this.mouseX > 0) {
                 const hIdx = Math.round(startIdx + (this.mouseX - 10) / (w - 75) * viewCount);
                 const d = this.dataH1[Math.max(0, Math.min(this.dataH1.length-1, hIdx))];
                 if(d) {
                     const dt = new Date(d.t * 1000);
-                    const timeStr = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}時`;
+                    const timeStr = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}h`;
+                    const psma = this.dataPriceSMA[hIdx]?.v;
                     ctx.strokeStyle = "rgba(255,255,255,0.2)";
                     ctx.beginPath(); ctx.moveTo(getX(hIdx), 0); ctx.lineTo(getX(hIdx), h); ctx.stroke();
-                    this.info.innerHTML = `<span style="color:var(--cyan)">${timeStr}</span> P:${d.p.toFixed(3)} B:${d.v.toFixed(1)} T:${this.dataShiftedTrend[hIdx]?.v?.toFixed(1)}`;
+                    this.info.innerHTML = `<span style="color:var(--cyan)">${timeStr}</span> P:${d.p.toFixed(3)}(S:${psma?.toFixed(3)}) B:${d.v.toFixed(1)}`;
                 }
             }
         }
     }
 
-    // 初期化とイベント
     Object.keys(CONFIG).forEach(pair => chartMap.set(pair, new FXChart(pair)));
-
     document.getElementById('fileIn').onchange = async (e) => {
         const files = Array.from(e.target.files);
         statusEl.innerText = "読込中...";
@@ -232,14 +215,10 @@
         }
         statusEl.innerText = "完了";
     };
-
     pivotInput.oninput = (e) => {
         const pvtData = parseTextPivot(e.target.value);
-        Object.entries(pvtData).forEach(([pair, data]) => {
-            if(chartMap.has(pair)) chartMap.get(pair).update(null, data);
-        });
+        Object.entries(pvtData).forEach(([pair, data]) => { if(chartMap.has(pair)) chartMap.get(pair).update(null, data); });
     };
-
     function parseH1CSV(text) {
         return text.split(/\r?\n/).filter(l => l.includes(',')).map(line => {
             const c = line.split(',');
