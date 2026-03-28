@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>USDJPY NY Sniper v1.3.0</title>
+    <title>USDJPY NY Sniper v1.2.5</title>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; --green: #4caf50; --orange: #ff9800; }
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; }
         * { box-sizing: border-box; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
         header { padding: 8px 12px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
         .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
-        .file-label { background: var(--blue); color: white; padding: 8px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        /* Android対応のためタップ領域を少し広めに */
+        .file-label { background: var(--blue); color: white; padding: 10px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .file-label:hover { background: #1e4eb8; }
         input[type="file"] { display: none; }
         
@@ -22,27 +23,24 @@
         canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         .controls { padding: 8px 16px; border-top: 1px solid #363c4e; display: flex; flex-shrink: 0; background: #1a1e28; align-items: center; gap: 15px;}
         .zoom-sld { flex-grow: 1; accent-color: var(--cyan); cursor: pointer; }
-        .legend { display: flex; gap: 10px; font-size: 10px; color: #888; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
     </style>
 </head>
 <body>
 <header>
     <div class="row">
         <div style="display:flex; gap:15px; align-items:center;">
-            <label class="file-label">CSV読込<input type="file" id="fileIn" accept=".csv"></label>
-            <span id="status" style="font-size:12px;color:#888;">USDJPY 1時間足データを読み込んでください</span>
+            <label class="file-label">CSVデータ読込<input type="file" id="fileIn" multiple></label>
+            <span id="status" style="font-size:12px;color:#888;">USDJPYのデータをお待ちしています...</span>
         </div>
         <div style="text-align: right;">
-            <div style="font-size:16px; font-weight:bold; color:var(--cyan);">USDJPY NY Sniper System</div>
-            <div style="font-size:10px; color:#555;">Version 1.3.0</div>
+            <div style="font-size:16px; font-weight:bold; color:var(--cyan);">USDJPY NY Sniper</div>
+            <div style="font-size:10px; color:#555;">Version 1.2.5 (Stable Revert)</div>
         </div>
     </div>
 </header>
 <div id="dashboard"></div>
 
 <script>
-    const CONFIG = { 'USDJPY': { th: 0.5 } };
     const dashboard = document.getElementById('dashboard');
     const statusEl = document.getElementById('status');
     let masterChart = null;
@@ -58,8 +56,8 @@
         constructor(pair) {
             this.pair = pair; 
             this.dataH1 = []; 
-            this.dataSMA10 = []; this.dataSMA20 = []; this.dataSMA75 = []; // 比率用SMA
-            this.dataPriceSMA = []; // 価格用SMA
+            this.dataSMA = []; 
+            this.dataPriceSMA = []; 
             this.dataShiftedTrend = [];
             this.zoom = 120; this.mouseX = -1; this.viewOffset = 0;
             this.signals = []; 
@@ -76,12 +74,8 @@
                 </div>
                 <div class="canvas-wrapper"><canvas></canvas></div>
                 <div class="controls">
-                    <div class="legend">
-                        <span><span class="dot" style="background:var(--yellow)"></span>Ratio 10SMA</span>
-                        <span><span class="dot" style="background:var(--green)"></span>Ratio 20SMA</span>
-                        <span><span class="dot" style="background:var(--orange)"></span>Ratio 75SMA</span>
-                    </div>
-                    <input type="range" class="zoom-sld" min="24" max="1500" value="120">
+                    <span style="font-size:12px;color:#888;">Zoom:</span>
+                    <input type="range" class="zoom-sld" min="24" max="1000" value="120">
                     <button id="resetBtn" style="background:#363c4e;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px;">最新へ</button>
                 </div>`;
             dashboard.appendChild(card);
@@ -116,17 +110,13 @@
             if(h1) {
                 this.dataH1 = h1;
                 const sma = (d, n, f) => d.map((_, i) => (i < n - 1) ? { t: d[i].t, v: NaN } : { t: d[i].t, v: d.slice(i-n+1, i+1).reduce((acc, curr) => acc + curr[f], 0) / n });
-                // 比率SMAの強化
-                this.dataSMA10 = sma(this.dataH1, 10, 'v');
-                this.dataSMA20 = sma(this.dataH1, 20, 'v');
-                this.dataSMA75 = sma(this.dataH1, 75, 'v');
-                // 価格SMA
+                this.dataSMA = sma(this.dataH1, 10, 'v'); 
                 this.dataPriceSMA = sma(this.dataH1, 10, 'p');
                 
                 this.dataShiftedTrend = []; let base = NaN;
                 this.dataH1.forEach(d => { if (new Date(d.t * 1000).getUTCHours() === 23) base = d.v; this.dataShiftedTrend.push({ t: d.t, v: base }); });
 
-                // サイン計算
+                // ===== サイン計算ロジック =====
                 this.signals = [];
                 const offset = 7; // 冬時間
                 const getJST = (ts) => (new Date(ts * 1000).getUTCHours() + offset) % 24;
@@ -141,16 +131,31 @@
                         let dEval = findH((h + 23) % 24, i);      // -1h
                         let dRangeS = findH((h + 21) % 24, i);    // -3h
                         let dTrendS = findH(9, i);               // 09:00
+
                         if (dEval && dRangeS && dTrendS) {
-                            let trend = dRangeS.p - dTrendS.p, range = dEval.p - dRangeS.p, ratio = dEval.v - dRangeS.v;
-                            if (Math.abs(trend) >= 0.4 && Math.abs(range) <= 0.15 && Math.abs(ratio) >= 0.6 && Math.abs(ratio) <= 0.9) {
-                                this.signals.push({ idx: i, type: ratio <= -0.6 ? 'LONG' : 'SHORT', data: { trend, range, ratio } });
+                            let trendRaw = dRangeS.p - dTrendS.p;
+                            let rangeRaw = dEval.p - dRangeS.p;
+                            let ratioRaw = dEval.v - dRangeS.v;
+
+                            let trend = Math.abs(trendRaw);
+                            let range = Math.abs(rangeRaw);
+                            let ratio = Math.abs(ratioRaw);
+
+                            // 最強フィルター条件
+                            if (trend >= 0.40 && range <= 0.15 && ratio >= 0.60 && ratio <= 0.90) {
+                                let isLong = ratioRaw <= -0.60;
+                                this.signals.push({ 
+                                    idx: i, 
+                                    type: isLong ? 'LONG' : 'SHORT', 
+                                    data: { trend: trendRaw, range: rangeRaw, ratio: ratioRaw } 
+                                });
                             }
                         }
                     }
                 }
             }
-            this.viewOffset = 0; this.draw();
+            this.viewOffset = 0; 
+            this.draw();
         }
 
         draw() {
@@ -168,9 +173,11 @@
             
             const visible = this.dataH1.slice(startIdx, startIdx + viewCount);
             if (visible.length === 0) return;
+            
             const pL = visible.map(d => d.p).filter(p => !isNaN(p));
             const pLo = Math.min(...pL), pHi = Math.max(...pL), pR = (pHi - pLo || 0.01) * 1.3;
             const getYp = (p) => (splitY - 20) - ((p - (pLo - pR*0.1)) / pR) * (splitY - 40);
+            
             const vL = visible.map(d => d.v).filter(v => !isNaN(v));
             const vLo = Math.min(...vL) - 2, vHi = Math.max(...vL) + 2, vR = vHi - vLo || 1;
             const getYr = (v) => (h - 20) - ((v - vLo) / vR) * (h - splitY - 30);
@@ -184,18 +191,25 @@
                 ctx.stroke(); ctx.setLineDash([]);
             };
 
-            // 下段描画
-            drawPath(this.dataH1, 'v', "#2962ff", 2, getYr); // 比率
-            drawPath(this.dataSMA10, 'v', "var(--yellow)", 1, getYr, [3, 2]); // 比率10SMA
-            drawPath(this.dataSMA20, 'v', "var(--green)", 1.5, getYr); // 比率20SMA
-            drawPath(this.dataSMA75, 'v', "var(--orange)", 1.5, getYr); // 比率75SMA
-            drawPath(this.dataShiftedTrend, 'v', "#f44336", 2, getYr); // 赤バンド
+            // 下段：比率
+            drawPath(this.dataH1, 'v', "#2962ff", 2, getYr);
+            drawPath(this.dataSMA, 'v', "var(--yellow)", 1.5, getYr, [4, 2]);
+            drawPath(this.dataShiftedTrend, 'v', "#f44336", 2, getYr);
             
-            // 上段描画
-            drawPath(this.dataH1, 'p', "#fff", 2, getYp); // 価格
-            drawPath(this.dataPriceSMA, 'v', "var(--yellow)", 1, getYp, [2, 2]); // 価格10SMA
+            const th = 0.5; // USDJPY閾値
+            ctx.strokeStyle = "#f44336"; ctx.setLineDash([3,3]);
+            [1, -1].forEach(dir => {
+                ctx.beginPath(); for(let i = startIdx; i < startIdx + viewCount; i++){
+                    const b = this.dataShiftedTrend[i]?.v; if(!isNaN(b)) ctx.lineTo(getX(i), getYr(b + dir * th));
+                }
+                ctx.stroke();
+            });
 
-            // 矢印サイン描画
+            // 上段：価格
+            drawPath(this.dataH1, 'p', "#fff", 2, getYp);
+            drawPath(this.dataPriceSMA, 'v', "var(--yellow)", 1.5, getYp, [3, 3]);
+
+            // ===== 矢印サイン描画 =====
             this.signals.forEach(sig => {
                 if (sig.idx >= startIdx && sig.idx < startIdx + viewCount) {
                     const x = getX(sig.idx);
@@ -206,27 +220,35 @@
                     
                     ctx.fillStyle = color; ctx.beginPath();
                     if(isLong) { // ↑
-                        ctx.moveTo(x, y); ctx.lineTo(x-6, y+8); ctx.lineTo(x-3, y+8); ctx.lineTo(x-3, y+18);
-                        ctx.lineTo(x+3, y+18); ctx.lineTo(x+3, y+8); ctx.lineTo(x+6, y+8);
+                        ctx.moveTo(x, y); ctx.lineTo(x-5, y+8); ctx.lineTo(x-2, y+8); ctx.lineTo(x-2, y+16);
+                        ctx.lineTo(x+2, y+16); ctx.lineTo(x+2, y+8); ctx.lineTo(x+5, y+8);
                     } else { // ↓
-                        ctx.moveTo(x, y); ctx.lineTo(x-6, y-8); ctx.lineTo(x-3, y-8); ctx.lineTo(x-3, y-18);
-                        ctx.lineTo(x+3, y-18); ctx.lineTo(x+3, y-8); ctx.lineTo(x+6, y-8);
+                        ctx.moveTo(x, y); ctx.lineTo(x-5, y-8); ctx.lineTo(x-2, y-8); ctx.lineTo(x-2, y-16);
+                        ctx.lineTo(x+2, y-16); ctx.lineTo(x+2, y-8); ctx.lineTo(x+5, y-8);
                     }
                     ctx.closePath(); ctx.fill();
                 }
             });
 
-            // マウスオーバー
+            // ===== マウスオーバー =====
             if(this.mouseX > 0) {
                 const idx = Math.round(startIdx + (this.mouseX - 10) / (w - 75) * viewCount);
                 const d = this.dataH1[Math.max(0, Math.min(this.dataH1.length-1, idx))];
                 if(d) {
                     const dt = new Date(d.t * 1000);
                     const jstH = (dt.getUTCHours() + 7) % 24;
-                    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(getX(idx), 0); ctx.lineTo(getX(idx), h); ctx.stroke();
-                    let info = `<span style="color:var(--cyan)">${dt.getUTCMonth()+1}/${dt.getUTCDate()} ${jstH}:00</span> Price:<span style="color:#fff">${d.p.toFixed(3)}</span> Ratio:<span style="color:var(--blue)">${d.v.toFixed(1)}%</span>`;
+                    
+                    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.setLineDash([2,2]); 
+                    ctx.beginPath(); ctx.moveTo(getX(idx), 0); ctx.lineTo(getX(idx), h); ctx.stroke();
+                    
+                    let info = `<span style="color:var(--cyan)">${dt.getUTCMonth()+1}/${dt.getUTCDate()} ${jstH.toString().padStart(2,'0')}:00</span> Price:<span style="color:#fff">${d.p.toFixed(3)}</span> Ratio:<span style="color:var(--blue)">${d.v.toFixed(1)}%</span>`;
+                    
                     const sig = this.signals.find(s => s.idx === idx);
-                    if(sig) info += ` | <span style="color:${sig.type==='LONG'?'var(--cyan)':'var(--red)'};font-weight:bold">[${sig.type}]</span> 助走:${sig.data.trend.toFixed(2)} レンジ:${sig.data.range.toFixed(2)} 比率変:${sig.data.ratio.toFixed(2)}`;
+                    if(sig) {
+                        const tMove = sig.data.trend > 0 ? '+'+sig.data.trend.toFixed(2) : sig.data.trend.toFixed(2);
+                        const rMove = sig.data.ratio > 0 ? '+'+sig.data.ratio.toFixed(2) : sig.data.ratio.toFixed(2);
+                        info += ` | <span style="color:${sig.type==='LONG'?'var(--cyan)':'var(--red)'};font-weight:bold">[${sig.type}]</span> 助走:${tMove} レンジ:${sig.data.range.toFixed(2)} 比率変:${rMove}`;
+                    }
                     this.info.innerHTML = info;
                 }
             }
@@ -234,16 +256,20 @@
     }
 
     masterChart = new FXChart('USDJPY');
+    
     document.getElementById('fileIn').onchange = async (e) => {
-        const file = e.target.files[0]; if (!file) return;
+        const file = e.target.files[0]; 
+        if (!file) return;
         statusEl.innerText = "読み込み中...";
         const text = await file.text();
+        
         const parsed = text.split(/\r?\n/).filter(l => l.includes(',')).map(l => {
             const c = l.split(',');
             return { t: parseDate(c[0]), v: parseFloat(c[2]), p: c[3] ? parseFloat(c[3]) : NaN };
         }).filter(d => d.t !== null).sort((a, b) => a.t - b.t);
+
         masterChart.update(parsed);
-        statusEl.innerText = "Ready";
+        statusEl.innerText = "データ読み込み完了";
     };
 </script>
 </body>
