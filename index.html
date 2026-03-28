@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>USDJPY NY Sniper Dashboard v1.2.8</title>
+    <title>USDJPY NY Sniper Dashboard v1.3.0</title>
 <style>
 :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; --green: #4caf50; --orange: #ff9800; --pink: #ff4081; }
 * { box-sizing: border-box; }
@@ -14,7 +14,6 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple
         .file-label:hover { background: #1e4eb8; }
 input[type="file"] { display: none; }
         
-        /* 単一チャート用のレイアウト変更 */
         #dashboard { flex-grow: 1; padding: 12px; display: flex; flex-direction: column; overflow: hidden; }
         .chart-card { background: var(--panel); border: 1px solid #363c4e; border-radius: 6px; display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
         .chart-header { padding: 8px 12px; border-bottom: 1px solid #363c4e; display: flex; justify-content: space-between; align-items: center; font-size: 14px; flex-shrink: 0; background: #232836; }
@@ -34,7 +33,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 </div>
         <div style="text-align: right;">
             <div style="font-size:16px; font-weight:bold; color:var(--cyan);">USDJPY NY Sniper System</div>
-            <div style="font-size:10px; color:#555;">Version 1.2.8</div>
+            <div style="font-size:10px; color:#555;">Version 1.3.0</div>
         </div>
 </div>
     <textarea id="pivot-input" placeholder="ここにPivotデータをペースト (任意)"></textarea>
@@ -42,7 +41,6 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 <div id="dashboard"></div>
 
 <script>
-    // USDJPY単体に設定
     const CONFIG = { 'USDJPY': { th: 0.5 } };
 const dashboard = document.getElementById('dashboard');
 const statusEl = document.getElementById('status');
@@ -67,7 +65,8 @@ this.pair = pair; this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = []; t
 this.dataSMA10 = []; this.dataSMA20 = []; this.dataSMA75 = [];
 this.rawPivot = null; this.zoom = 120; this.mouseX = -1; 
             this.signals = []; 
-            this.viewOffset = 0; // スクロール移動用のオフセット
+            this.poSignals = []; // POサイン格納用
+            this.viewOffset = 0; 
 this.initDOM();
 }
 
@@ -81,6 +80,10 @@ card.className = 'chart-card';
                 </div>
                 <div class="canvas-wrapper"><canvas></canvas></div>
                 <div class="controls">
+                    <select class="sig-mode" style="background:#363c4e;color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:12px;margin-right:10px;cursor:pointer;">
+                        <option value="ny">NY Sniperサイン</option>
+                        <option value="po">PO発生サイン</option>
+                    </select>
                     <div style="display:flex; gap:10px; font-size:11px; align-items:center; color:#ccc;">
                         <span style="color:var(--yellow)">■ Ratio 10SMA</span>
                         <span style="color:var(--pink)">■ Ratio 20SMA</span>
@@ -96,13 +99,17 @@ dashboard.appendChild(card);
             this.ctx = this.canvas.getContext('2d'); 
             this.info = card.querySelector('.info-display');
             
+            // モード切り替え
+            this.sigModeSelect = card.querySelector('.sig-mode');
+            this.sigModeSelect.onchange = () => this.draw();
+
             // ズーム操作
 card.querySelector('.zoom-sld').oninput = (e) => { this.zoom = parseInt(e.target.value); this.draw(); };
             
             // 最新位置へリセット
             card.querySelector('#resetBtn').onclick = () => { this.viewOffset = 0; this.draw(); };
 
-            // ===== マウスとドラッグ(パン)操作の実装 =====
+            // ドラッグ操作
             let isDragging = false;
             let startX = 0;
             let startOffset = 0;
@@ -129,14 +136,12 @@ const rect = this.canvas.getBoundingClientRect();
                 if (isDragging) {
                     const dx = e.clientX - startX;
                     const pxPerCandle = (this.canvas.clientWidth - 75) / this.zoom;
-                    // 右にドラッグするとオフセット増加(過去へ)
                     const shiftCandles = Math.round(dx / pxPerCandle);
                     this.viewOffset = startOffset + shiftCandles;
                 }
                 this.draw();
             });
 
-            // タッチ対応
             this.canvas.addEventListener('touchstart', (e) => {
                 if(e.touches.length === 1) {
                     isDragging = true;
@@ -168,14 +173,12 @@ const sma = (d, n, f) => d.map((_, i) => (i < n - 1) ? { t: d[i].t, v: NaN } : {
                 this.dataSMA20 = sma(this.dataH1, 20, 'v'); 
                 this.dataSMA75 = sma(this.dataH1, 75, 'v'); 
                 
-                // 比率基準線
-this.dataShiftedTrend = []; let base = NaN;
+                this.dataShiftedTrend = []; let base = NaN;
                 this.dataH1.forEach(d => { if (new Date(d.t * 1000).getUTCHours() === 23) base = d.v; this.dataShiftedTrend.push({ t: d.t, v: base }); });
 
-                // ===== NYスナイパー トレードロジック =====
+                // ===== 1. NYスナイパー トレードロジック =====
 this.signals = [];
-                if (this.pair.includes("USDJPY") || this.pair.includes("JPY")) {
-                const timeOffset = 7; // 冬時間+7
+                const timeOffset = 7; 
                 const getJST = (ts) => (new Date(ts * 1000).getUTCHours() + timeOffset) % 24;
 
                 const findH = (targetJST, startIndex, maxLookback = 24) => {
@@ -189,7 +192,6 @@ this.signals = [];
                     let d = this.dataH1[i];
                     let h = getJST(d.t);
 
-                    // 22:00 または 23:00 にサイン判定
                     if (h === 22 || h === 23) {
                         let dEval = findH((h + 24 - 1) % 24, i, 3);       
                         let dStartRange = findH((h + 24 - 3) % 24, i, 5); 
@@ -200,15 +202,10 @@ this.signals = [];
                             let rangeMoveRaw = dEval.p - dStartRange.p;
                             let ratioMove = dEval.v - dStartRange.v;
 
-                            let trendMove = Math.abs(trendMoveRaw);
                             let rangeMove = Math.abs(rangeMoveRaw);
 
-                            let threshRange = 0.15;   
-                            let threshRatioMin = 0.6; 
-
-                            if (rangeMove <= threshRange && Math.abs(ratioMove) >= threshRatioMin) {
-                                
-                                let isLong = ratioMove <= -threshRatioMin;
+                            if (rangeMove <= 0.15 && Math.abs(ratioMove) >= 0.6) {
+                                let isLong = ratioMove <= -0.6;
                                 this.signals.push({
                                     idx: i,
                                     type: isLong ? 'LONG' : 'SHORT',
@@ -219,7 +216,33 @@ this.signals = [];
                         }
                     }
                 }
-}
+
+                // ===== 2. PO（パーフェクトオーダー）発生ロジック =====
+                this.poSignals = [];
+                for(let i = 1; i < this.dataH1.length; i++) {
+                    let prev = this.dataH1[i-1];
+                    let curr = this.dataH1[i];
+                    let pS10 = this.dataSMA10[i-1]?.v, pS20 = this.dataSMA20[i-1]?.v;
+                    let cS10 = this.dataSMA10[i]?.v,   cS20 = this.dataSMA20[i]?.v;
+
+                    if(pS10 !== undefined && pS20 !== undefined && cS10 !== undefined && cS20 !== undefined) {
+                        // 前回(1時間前)のPO状態
+                        let pPO_S = (prev.v > pS10) && (pS10 > pS20);
+                        let pPO_L = (pS20 > pS10) && (pS10 > prev.v);
+                        
+                        // 今回(現在)のPO状態
+                        let cPO_S = (curr.v > cS10) && (cS10 > cS20); // ショート: 青 > 黄 > 赤
+                        let cPO_L = (cS20 > cS10) && (cS10 > curr.v); // ロング: 赤 > 黄 > 青
+
+                        // 新たにPOが形成された瞬間を検知
+                        if(cPO_S && !pPO_S) {
+                            this.poSignals.push({ idx: i, type: 'SHORT', price: curr.p });
+                        }
+                        if(cPO_L && !pPO_L) {
+                            this.poSignals.push({ idx: i, type: 'LONG', price: curr.p });
+                        }
+                    }
+                }
 }
 if(rawPvt) this.rawPivot = rawPvt;
             this.viewOffset = 0; 
@@ -233,7 +256,6 @@ const dpr = window.devicePixelRatio || 1; this.canvas.width = w * dpr; this.canv
 ctx.scale(dpr, dpr); ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
 if (this.dataH1.length === 0) return;
 
-            // スクロール・ズーム制御
 const viewCount = Math.min(this.zoom, this.dataH1.length);
             const maxOffset = Math.max(0, this.dataH1.length - viewCount);
             this.viewOffset = Math.max(0, Math.min(this.viewOffset, maxOffset));
@@ -263,16 +285,16 @@ const x = getX(i), y = yf(val); if(f) { ctx.moveTo(x,y); f=false; } else ctx.lin
 ctx.stroke(); ctx.setLineDash([]);
 };
 
-            // 下段：比率インジケーター描画 (色変更＆赤バンド削除)
+            // 下段：比率インジケーター描画
             drawPath(this.dataH1, 'v', "#2962ff", 2, getYr); // 比率 (青)
-            drawPath(this.dataSMA10, 'v', "#ffeb3b", 1.5, getYr, [4, 2]); // 10SMA (黄色・点線)
+            drawPath(this.dataSMA10, 'v', "#ffeb3b", 1.5, getYr, [4, 2]); // 10SMA (黄色)
             drawPath(this.dataSMA20, 'v', "#ff4081", 1.5, getYr); // 20SMA (ピンク色) 
             drawPath(this.dataSMA75, 'v', "#ff9800", 1.5, getYr); // 75SMA (オレンジ) 
             drawPath(this.dataShiftedTrend, 'v', "#ffffff", 2, getYr); // 基準線 (白)
 
             // 上段：価格インジケーター描画
             drawPath(this.dataH1, 'p', "#fff", 2, getYp);
-            drawPath(this.dataPriceSMA, 'v', "#ffeb3b", 1.5, getYp, [3, 3]); // 価格10SMA (黄色)
+            drawPath(this.dataPriceSMA, 'v', "#ffeb3b", 1.5, getYp, [3, 3]);
 
             // ===== 矢印の描画関数 =====
             const drawArrow = (x, y, dir, color) => {
@@ -292,35 +314,38 @@ ctx.stroke(); ctx.setLineDash([]);
                 ctx.closePath(); ctx.fill();
             }
 
-            // サインの描画
-this.signals.forEach(sig => {
+            // サインの描画 (モード判定)
+            const activeMode = this.sigModeSelect ? this.sigModeSelect.value : 'ny';
+            const targetSignals = activeMode === 'po' ? this.poSignals : this.signals;
+
+            targetSignals.forEach(sig => {
                 if (sig.idx >= startIdx && sig.idx < startIdx + viewCount) {
-const x = getX(sig.idx);
+                    const x = getX(sig.idx);
                     const isLong = sig.type === 'LONG';
                     const yBase = getYp(this.dataH1[sig.idx].p);
                     const y = isLong ? yBase + 15 : yBase - 15;
                     drawArrow(x, y, isLong ? 'UP' : 'DOWN', isLong ? '#00bcd4' : '#f44336');
-}
-});
+                }
+            });
 
             // Pivot描画
-if(this.rawPivot) {
-Object.entries(this.rawPivot).forEach(([k, val]) => {
+            if(this.rawPivot) {
+                Object.entries(this.rawPivot).forEach(([k, val]) => {
                     const syncedVal = syncScale(val, basePrice);
                     const y = getYp(syncedVal);
                     ctx.strokeStyle = k==='P'?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.15)";
                     ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w-70, y); ctx.stroke();
                     ctx.fillStyle = ctx.strokeStyle; ctx.font = "10px Arial"; ctx.fillText(k, w-65, y+4);
-});
-}
+                });
+            }
 
             // ===== マウスオーバー表示 =====
-if(this.mouseX > 0) {
-const idx = Math.round(startIdx + (this.mouseX - 10) / (w - 75) * viewCount);
-const d = this.dataH1[Math.max(0, Math.min(this.dataH1.length-1, idx))];
+            if(this.mouseX > 0) {
+                const idx = Math.round(startIdx + (this.mouseX - 10) / (w - 75) * viewCount);
+                const d = this.dataH1[Math.max(0, Math.min(this.dataH1.length-1, idx))];
                 
-if(d) {
-const dt = new Date(d.t * 1000);
+                if(d) {
+                    const dt = new Date(d.t * 1000);
                     const timeOffset = 7; 
                     const jstH = (dt.getUTCHours() + timeOffset) % 24;
                     const hStr = jstH.toString().padStart(2, '0');
@@ -330,22 +355,26 @@ const dt = new Date(d.t * 1000);
 
                     let infoHtml = `<span style="color:var(--cyan)">${dt.getUTCMonth()+1}/${dt.getUTCDate()} ${hStr}:00 (JST)</span> &nbsp;&nbsp; 価格: <span style="color:#fff">${d.p.toFixed(3)}</span> &nbsp;&nbsp; 買い比率: <span style="color:#2962ff">${d.v.toFixed(1)}%</span>`;
                     
-                    const sig = this.signals.find(s => s.idx === idx);
+                    const sig = targetSignals.find(s => s.idx === idx);
                     if(sig) {
                         const col = sig.type === 'LONG' ? '#00bcd4' : '#f44336';
-                        const tMove = sig.rat.trend > 0 ? '+'+sig.rat.trend.toFixed(2) : sig.rat.trend.toFixed(2);
-                        const rMove = sig.rat.ratio > 0 ? '+'+sig.rat.ratio.toFixed(2) : sig.rat.ratio.toFixed(2);
-                        infoHtml += ` &nbsp;|&nbsp; <span style="color:${col};font-weight:bold;">[${sig.type}]</span> 助走:${tMove} / レンジ:${sig.rat.range.toFixed(2)} / 比率変:${rMove}`;
+                        if (activeMode === 'ny') {
+                            const tMove = sig.rat.trend > 0 ? '+'+sig.rat.trend.toFixed(2) : sig.rat.trend.toFixed(2);
+                            const rMove = sig.rat.ratio > 0 ? '+'+sig.rat.ratio.toFixed(2) : sig.rat.ratio.toFixed(2);
+                            infoHtml += ` &nbsp;|&nbsp; <span style="color:${col};font-weight:bold;">[${sig.type}]</span> 助走:${tMove} / レンジ:${sig.rat.range.toFixed(2)} / 比率変:${rMove}`;
+                        } else {
+                            infoHtml += ` &nbsp;|&nbsp; <span style="color:${col};font-weight:bold;">[${sig.type} PO発生]</span>`;
+                        }
                     }
                     this.info.innerHTML = infoHtml;
-}
-}
-}
-}
+                }
+            }
+        }
+    }
 
     masterChart = new FXChart('USDJPY');
 
-document.getElementById('fileIn').onchange = async (e) => {
+    document.getElementById('fileIn').onchange = async (e) => {
         const file = e.target.files[0]; 
         if (!file) return;
         statusEl.innerText = "読み込み中...";
@@ -358,17 +387,17 @@ document.getElementById('fileIn').onchange = async (e) => {
 
         masterChart.update(parsed, null);
         statusEl.innerText = "データ読み込み完了";
-};
+    };
 
-pivotInput.oninput = (e) => {
-const lines = e.target.value.split('\n');
-lines.forEach(line => {
-const p = line.split(/\s+/).filter(x => x.length > 0);
-if (p.length < 5) return;
+    pivotInput.oninput = (e) => {
+        const lines = e.target.value.split('\n');
+        lines.forEach(line => {
+            const p = line.split(/\s+/).filter(x => x.length > 0);
+            if (p.length < 5) return;
             const n = p.slice(1).map(x => parseFloat(x)).filter(v => !isNaN(v));
             if (n.length >= 5 && masterChart) masterChart.update(null, { P: n[3], R1: n[2], R2: n[1], S1: n[4], S2: n[5] });
-});
-};
+        });
+    };
 </script>
 </body>
 </html>
