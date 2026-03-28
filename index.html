@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>USDJPY NY Sniper v1.2.5</title>
+    <title>USDJPY NY Sniper v1.2.6</title>
     <style>
-        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; }
+        :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; --green: #4caf50; --orange: #ff9800; }
         * { box-sizing: border-box; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
         header { padding: 8px 12px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
         .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
-        /* Android対応のためタップ領域を少し広めに */
+        /* Android対応タップ領域 */
         .file-label { background: var(--blue); color: white; padding: 10px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .file-label:hover { background: #1e4eb8; }
         input[type="file"] { display: none; }
@@ -34,7 +34,7 @@
         </div>
         <div style="text-align: right;">
             <div style="font-size:16px; font-weight:bold; color:var(--cyan);">USDJPY NY Sniper</div>
-            <div style="font-size:10px; color:#555;">Version 1.2.5 (Stable Revert)</div>
+            <div style="font-size:10px; color:#555;">Version 1.2.6</div>
         </div>
     </div>
 </header>
@@ -56,8 +56,10 @@
         constructor(pair) {
             this.pair = pair; 
             this.dataH1 = []; 
-            this.dataSMA = []; 
             this.dataPriceSMA = []; 
+            this.dataSMA10 = []; 
+            this.dataSMA20 = []; 
+            this.dataSMA75 = []; 
             this.dataShiftedTrend = [];
             this.zoom = 120; this.mouseX = -1; this.viewOffset = 0;
             this.signals = []; 
@@ -74,7 +76,12 @@
                 </div>
                 <div class="canvas-wrapper"><canvas></canvas></div>
                 <div class="controls">
-                    <span style="font-size:12px;color:#888;">Zoom:</span>
+                    <div style="display:flex; gap:10px; font-size:11px; align-items:center; color:#ccc;">
+                        <span style="color:var(--yellow)">■ Ratio 10SMA</span>
+                        <span style="color:var(--green)">■ Ratio 20SMA</span>
+                        <span style="color:var(--orange)">■ Ratio 75SMA</span>
+                    </div>
+                    <span style="font-size:12px;color:#888;margin-left:auto;">Zoom:</span>
                     <input type="range" class="zoom-sld" min="24" max="1000" value="120">
                     <button id="resetBtn" style="background:#363c4e;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px;">最新へ</button>
                 </div>`;
@@ -110,13 +117,16 @@
             if(h1) {
                 this.dataH1 = h1;
                 const sma = (d, n, f) => d.map((_, i) => (i < n - 1) ? { t: d[i].t, v: NaN } : { t: d[i].t, v: d.slice(i-n+1, i+1).reduce((acc, curr) => acc + curr[f], 0) / n });
-                this.dataSMA = sma(this.dataH1, 10, 'v'); 
+                
                 this.dataPriceSMA = sma(this.dataH1, 10, 'p');
+                this.dataSMA10 = sma(this.dataH1, 10, 'v'); 
+                this.dataSMA20 = sma(this.dataH1, 20, 'v'); 
+                this.dataSMA75 = sma(this.dataH1, 75, 'v'); 
                 
                 this.dataShiftedTrend = []; let base = NaN;
                 this.dataH1.forEach(d => { if (new Date(d.t * 1000).getUTCHours() === 23) base = d.v; this.dataShiftedTrend.push({ t: d.t, v: base }); });
 
-                // ===== サイン計算ロジック =====
+                // ===== オリジナルのサイン計算ロジック (48回) =====
                 this.signals = [];
                 const offset = 7; // 冬時間
                 const getJST = (ts) => (new Date(ts * 1000).getUTCHours() + offset) % 24;
@@ -137,12 +147,11 @@
                             let rangeRaw = dEval.p - dRangeS.p;
                             let ratioRaw = dEval.v - dRangeS.v;
 
-                            let trend = Math.abs(trendRaw);
                             let range = Math.abs(rangeRaw);
                             let ratio = Math.abs(ratioRaw);
 
-                            // 最強フィルター条件
-                            if (trend >= 0.40 && range <= 0.15 && ratio >= 0.60 && ratio <= 0.90) {
+                            // オリジナルフィルター: レンジ0.15以内 ＆ 比率変動0.6以上
+                            if (range <= 0.15 && ratio >= 0.60) {
                                 let isLong = ratioRaw <= -0.60;
                                 this.signals.push({ 
                                     idx: i, 
@@ -191,9 +200,11 @@
                 ctx.stroke(); ctx.setLineDash([]);
             };
 
-            // 下段：比率
+            // 下段：比率 と 新規SMA
             drawPath(this.dataH1, 'v', "#2962ff", 2, getYr);
-            drawPath(this.dataSMA, 'v', "var(--yellow)", 1.5, getYr, [4, 2]);
+            drawPath(this.dataSMA10, 'v', "var(--yellow)", 1.5, getYr, [4, 2]); // 10SMA (点線)
+            drawPath(this.dataSMA20, 'v', "var(--green)", 1.5, getYr);          // 20SMA (実線)
+            drawPath(this.dataSMA75, 'v', "var(--orange)", 1.5, getYr);         // 75SMA (実線)
             drawPath(this.dataShiftedTrend, 'v', "#f44336", 2, getYr);
             
             const th = 0.5; // USDJPY閾値
@@ -209,22 +220,22 @@
             drawPath(this.dataH1, 'p', "#fff", 2, getYp);
             drawPath(this.dataPriceSMA, 'v', "var(--yellow)", 1.5, getYp, [3, 3]);
 
-            // ===== 矢印サイン描画 =====
+            // ===== 拡大された矢印サイン描画 =====
             this.signals.forEach(sig => {
                 if (sig.idx >= startIdx && sig.idx < startIdx + viewCount) {
                     const x = getX(sig.idx);
                     const isLong = sig.type === 'LONG';
                     const yBase = getYp(this.dataH1[sig.idx].p);
-                    const y = isLong ? yBase + 15 : yBase - 15;
+                    const y = isLong ? yBase + 20 : yBase - 20; // 距離を離す
                     const color = isLong ? "var(--cyan)" : "var(--red)";
                     
                     ctx.fillStyle = color; ctx.beginPath();
-                    if(isLong) { // ↑
-                        ctx.moveTo(x, y); ctx.lineTo(x-5, y+8); ctx.lineTo(x-2, y+8); ctx.lineTo(x-2, y+16);
-                        ctx.lineTo(x+2, y+16); ctx.lineTo(x+2, y+8); ctx.lineTo(x+5, y+8);
-                    } else { // ↓
-                        ctx.moveTo(x, y); ctx.lineTo(x-5, y-8); ctx.lineTo(x-2, y-8); ctx.lineTo(x-2, y-16);
-                        ctx.lineTo(x+2, y-16); ctx.lineTo(x+2, y-8); ctx.lineTo(x+5, y-8);
+                    if(isLong) { // ↑ (1.5倍サイズ)
+                        ctx.moveTo(x, y); ctx.lineTo(x-7.5, y+12); ctx.lineTo(x-3, y+12); ctx.lineTo(x-3, y+24);
+                        ctx.lineTo(x+3, y+24); ctx.lineTo(x+3, y+12); ctx.lineTo(x+7.5, y+12);
+                    } else { // ↓ (1.5倍サイズ)
+                        ctx.moveTo(x, y); ctx.lineTo(x-7.5, y-12); ctx.lineTo(x-3, y-12); ctx.lineTo(x-3, y-24);
+                        ctx.lineTo(x+3, y-24); ctx.lineTo(x+3, y-12); ctx.lineTo(x+7.5, y-12);
                     }
                     ctx.closePath(); ctx.fill();
                 }
