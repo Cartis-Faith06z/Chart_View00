@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard v1.2.4 (Sync Scale)</title>
+    <title>FX Dashboard v1.2.4 (NY Sniper)</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; }
         * { box-sizing: border-box; }
@@ -14,56 +14,62 @@
         input[type="file"] { display: none; }
         #pivot-input { width: 100%; height: 45px; background: #2a2e39; border: 1px solid #363c4e; color: #fff; font-size: 11px; border-radius: 4px; padding: 6px; resize: none; }
         #dashboard { flex-grow: 1; overflow-y: auto; padding: 8px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: start; }
-        @media (max-width: 768px) { #dashboard { grid-template-columns: 1fr; } .chart-card { height: 320px !important; } }
-        .chart-card { background: var(--panel); border-radius: 8px; border: 1px solid #333; height: 380px; display: flex; flex-direction: column; overflow: hidden; }
-        .chart-header { padding: 6px 10px; background: rgba(255,255,255,0.05); font-size: 11px; display: flex; justify-content: space-between; border-bottom: 1px solid #333; flex-shrink: 0; }
-        .canvas-wrapper { flex-grow: 1; position: relative; cursor: crosshair; touch-action: none; overflow: hidden; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        .controls { padding: 8px 10px; background: var(--panel); border-top: 1px solid #333; flex-shrink: 0; }
-        input[type="range"] { width: 100%; height: 30px; accent-color: var(--blue); cursor: pointer; }
+        @media (max-width: 768px) { #dashboard { grid-template-columns: 1fr; } .chart-card { height: 280px; } }
+        .chart-card { background: var(--panel); border: 1px solid #363c4e; border-radius: 6px; display: flex; flex-direction: column; height: 320px; overflow: hidden; }
+        .chart-header { padding: 6px 10px; border-bottom: 1px solid #363c4e; display: flex; justify-content: space-between; align-items: center; font-size: 13px; flex-shrink: 0; }
+        .canvas-wrapper { flex-grow: 1; position: relative; min-height: 0; }
+        canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+        .controls { padding: 4px 10px; border-top: 1px solid #363c4e; display: flex; flex-shrink: 0; }
+        .zoom-sld { width: 100%; accent-color: var(--cyan); }
     </style>
 </head>
 <body>
-
 <header>
     <div class="row">
-        <label class="file-label">📂 CSV選択
-            <input type="file" id="fileIn" multiple accept=".csv, text/csv">
-        </label>
-        <div id="status" style="font-size:10px; color:var(--cyan)">CSV & Pivot Syncing...</div>
-        <div style="font-size:10px; color:#5d606b">v1.2.4</div>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <label class="file-label">CSV選択<input type="file" id="fileIn" multiple accept=".csv"></label>
+            <span id="status" style="font-size:12px;color:#888;">Ready</span>
+        </div>
+        <div style="font-size:14px; font-weight:bold; color:var(--cyan);">FX Dashboard</div>
     </div>
-    <textarea id="pivot-input" placeholder="あい証券のPivot表を貼り付け..."></textarea>
+    <textarea id="pivot-input" placeholder="ここにPivotデータをペースト (例: USD/JPY 160.0 159.5 159.0 158.5 158.0)"></textarea>
 </header>
-
 <div id="dashboard"></div>
 
 <script>
+    const CONFIG = {
+        'USDJPY': { th: 0.5 },
+        'EURUSD': { th: 1.0 },
+        'GBPUSD': { th: 1.0 },
+        'EURJPY': { th: 1.0 },
+        'GBPJPY': { th: 1.0 },
+        'GOLD': { th: 1.0 }
+    };
+
     const dashboard = document.getElementById('dashboard');
     const statusEl = document.getElementById('status');
     const pivotInput = document.getElementById('pivot-input');
     const chartMap = new Map();
-    const CONFIG = { "USDJPY": { th: 2.5 }, "GBPUSD": { th: 2.0 }, "EURUSD": { th: 1.5 }, "GOLD": { th: 5.0 } };
 
-    function parseDate(s) {
-        if (!s) return null;
-        const dt = new Date(s.trim().replace(/\./g, '/').replace(/-/g, '/'));
-        return isNaN(dt.getTime()) ? null : Math.floor(dt.getTime() / 1000);
-    }
+    const parseDate = (dStr) => {
+        if (!dStr) return null;
+        let d = new Date(dStr.replace(' ', 'T') + 'Z');
+        if (isNaN(d.getTime())) return null;
+        return d.getTime() / 1000;
+    };
 
-    // 数値の桁数（スケール）を合わせる関数
-    function syncScale(targetVal, baseVal) {
-        if (isNaN(targetVal) || isNaN(baseVal)) return targetVal;
-        const targetStr = targetVal.toString().replace('.', '');
-        const baseLog = Math.floor(Math.log10(Math.abs(baseVal)));
-        const targetLog = Math.floor(Math.log10(Math.abs(parseFloat(targetStr))));
-        return parseFloat(targetStr) * Math.pow(10, baseLog - targetLog);
-    }
+    const syncScale = (val, basePrice) => {
+        if (!val || !basePrice) return val;
+        let diff = val - basePrice;
+        return basePrice + (diff * 0.1);
+    };
 
     class FXChart {
         constructor(pair) {
             this.pair = pair; this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = []; this.dataShiftedTrend = [];
-            this.rawPivot = null; this.zoom = 120; this.mouseX = -1; this.initDOM();
+            this.rawPivot = null; this.zoom = 120; this.mouseX = -1; 
+            this.signals = []; // サイン格納用配列を追加
+            this.initDOM();
         }
 
         initDOM() {
@@ -88,6 +94,55 @@
                 this.dataSMA = sma(this.dataH1, 10, 'v'); this.dataPriceSMA = sma(this.dataH1, 10, 'p');
                 this.dataShiftedTrend = []; let base = NaN;
                 this.dataH1.forEach(d => { if (new Date(d.t * 1000).getHours() === 23) base = d.v; this.dataShiftedTrend.push({ t: d.t, v: base }); });
+
+                // ===== トレードロジックの計算 (USDJPY専用) =====
+                this.signals = [];
+                if (this.pair.includes("USDJPY") || this.pair.includes("JPY")) {
+                    const timeOffset = 7; // 冬時間(JST+7)。夏時間は6
+                    const getJST = (ts) => (new Date(ts * 1000).getHours() + timeOffset) % 24;
+
+                    for(let i = 0; i < this.dataH1.length; i++) {
+                        let d = this.dataH1[i];
+                        let h = getJST(d.t);
+
+                        if (h === 22 || h === 23) {
+                            const findH = (targetJST) => {
+                                for(let j = i; j >= Math.max(0, i - 24); j--) {
+                                    if(getJST(this.dataH1[j].t) === targetJST) return this.dataH1[j];
+                                }
+                                return null;
+                            };
+
+                            let dEval = findH(h - 1);       // 21:00 or 22:00 JST
+                            let dStartRange = findH(h - 3); // 19:00 or 20:00 JST
+                            let dTrendStart = findH(9);     // 09:00 JST
+
+                            if (dEval && dStartRange && dTrendStart) {
+                                let trendMove = Math.abs(dStartRange.p - dTrendStart.p);
+                                let rangeMove = Math.abs(dEval.p - dStartRange.p);
+                                let ratioMove = dEval.v - dStartRange.v;
+
+                                // あなたと分析した黄金フィルター
+                                let threshTrend = 0.40;   
+                                let threshRange = 0.15;   
+                                let threshRatioMin = 0.6; 
+                                let threshRatioMax = 0.9; 
+
+                                if (trendMove >= threshTrend && rangeMove <= threshRange && 
+                                    Math.abs(ratioMove) >= threshRatioMin && Math.abs(ratioMove) <= threshRatioMax) {
+                                    
+                                    let isLong = ratioMove <= -threshRatioMin;
+                                    this.signals.push({
+                                        idx: i,
+                                        type: isLong ? 'LONG' : 'SHORT',
+                                        price: d.p
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                // ============================================
             }
             if(rawPvt) this.rawPivot = rawPvt;
             this.draw();
@@ -128,7 +183,7 @@
             drawPath(this.dataSMA, 'v', "#ffeb3b", 1.5, getYr, [4, 2]);
             drawPath(this.dataShiftedTrend, 'v', "#f44336", 2, getYr);
             
-            const th = CONFIG[this.pair].th;
+            const th = CONFIG[this.pair]?.th || 1.0;
             ctx.strokeStyle = "#f44336"; ctx.setLineDash([3,3]);
             [1, -1].forEach(dir => {
                 ctx.beginPath(); for(let i = startIdx; i < this.dataH1.length; i++){
@@ -139,15 +194,34 @@
 
             drawPath(this.dataH1, 'p', "#fff", 1, getYp);
             drawPath(this.dataPriceSMA, 'v', "#ffeb3b", 1, getYp, [2, 2]);
+
+            // ===== サインの描画 =====
+            this.signals.forEach(sig => {
+                if (sig.idx >= startIdx && sig.idx < this.dataH1.length) {
+                    const x = getX(sig.idx);
+                    const y = getYp(this.dataH1[sig.idx].p);
+                    
+                    ctx.fillStyle = sig.type === 'LONG' ? '#00bcd4' : '#f44336';
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(sig.type, x, y - 10);
+                }
+            });
             
-            // Pivotのスケール同期と描画
             if(this.rawPivot) {
                 Object.entries(this.rawPivot).forEach(([k, val]) => {
-                    const syncedVal = syncScale(val, basePrice);
-                    const y = getYp(syncedVal);
-                    ctx.strokeStyle = k==='P'?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.15)";
-                    ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w-70, y); ctx.stroke();
-                    ctx.fillStyle = ctx.strokeStyle; ctx.font = "9px Arial"; ctx.fillText(k, w-65, y+3);
+                    if (typeof syncScale !== 'undefined') {
+                        const syncedVal = syncScale(val, basePrice);
+                        const y = getYp(syncedVal);
+                        ctx.strokeStyle = k==='P'?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.15)";
+                        ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w-70, y); ctx.stroke();
+                        ctx.fillStyle = ctx.strokeStyle; ctx.font = "9px Arial"; ctx.fillText(k, w-65, y+3);
+                    }
                 });
             }
 
