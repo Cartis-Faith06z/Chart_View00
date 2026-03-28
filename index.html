@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>USDJPY NY Sniper Dashboard v1.3.0</title>
+    <title>USDJPY NY Sniper Dashboard v1.3.1</title>
 <style>
 :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; --green: #4caf50; --orange: #ff9800; --pink: #ff4081; }
 * { box-sizing: border-box; }
@@ -33,7 +33,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 </div>
         <div style="text-align: right;">
             <div style="font-size:16px; font-weight:bold; color:var(--cyan);">USDJPY NY Sniper System</div>
-            <div style="font-size:10px; color:#555;">Version 1.3.0</div>
+            <div style="font-size:10px; color:#555;">Version 1.3.1</div>
         </div>
 </div>
     <textarea id="pivot-input" placeholder="ここにPivotデータをペースト (任意)"></textarea>
@@ -65,7 +65,7 @@ this.pair = pair; this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = []; t
 this.dataSMA10 = []; this.dataSMA20 = []; this.dataSMA75 = [];
 this.rawPivot = null; this.zoom = 120; this.mouseX = -1; 
             this.signals = []; 
-            this.poSignals = []; // POサイン格納用
+            this.poSignals = []; 
             this.viewOffset = 0; 
 this.initDOM();
 }
@@ -192,7 +192,8 @@ this.signals = [];
                     let d = this.dataH1[i];
                     let h = getJST(d.t);
 
-                    if (h === 22 || h === 23) {
+                    // 夏時間(21時) または 冬時間(22時) に限定
+                    if (h === 21 || h === 22) {
                         let dEval = findH((h + 24 - 1) % 24, i, 3);       
                         let dStartRange = findH((h + 24 - 3) % 24, i, 5); 
                         let dTrendStart = findH(9, i, 16);                
@@ -222,24 +223,29 @@ this.signals = [];
                 for(let i = 1; i < this.dataH1.length; i++) {
                     let prev = this.dataH1[i-1];
                     let curr = this.dataH1[i];
-                    let pS10 = this.dataSMA10[i-1]?.v, pS20 = this.dataSMA20[i-1]?.v;
-                    let cS10 = this.dataSMA10[i]?.v,   cS20 = this.dataSMA20[i]?.v;
+                    let h = getJST(curr.t);
 
-                    if(pS10 !== undefined && pS20 !== undefined && cS10 !== undefined && cS20 !== undefined) {
-                        // 前回(1時間前)のPO状態
-                        let pPO_S = (prev.v > pS10) && (pS10 > pS20);
-                        let pPO_L = (pS20 > pS10) && (pS10 > prev.v);
-                        
-                        // 今回(現在)のPO状態
-                        let cPO_S = (curr.v > cS10) && (cS10 > cS20); // ショート: 青 > 黄 > 赤
-                        let cPO_L = (cS20 > cS10) && (cS10 > curr.v); // ロング: 赤 > 黄 > 青
+                    // NYオープンの時間帯（21時・22時）のみPO発生サインを許可
+                    if (h === 21 || h === 22) {
+                        let pS10 = this.dataSMA10[i-1]?.v, pS20 = this.dataSMA20[i-1]?.v;
+                        let cS10 = this.dataSMA10[i]?.v,   cS20 = this.dataSMA20[i]?.v;
 
-                        // 新たにPOが形成された瞬間を検知
-                        if(cPO_S && !pPO_S) {
-                            this.poSignals.push({ idx: i, type: 'SHORT', price: curr.p });
-                        }
-                        if(cPO_L && !pPO_L) {
-                            this.poSignals.push({ idx: i, type: 'LONG', price: curr.p });
+                        if(pS10 !== undefined && pS20 !== undefined && cS10 !== undefined && cS20 !== undefined) {
+                            // 前回(1時間前)のPO状態
+                            let pPO_S = (prev.v > pS10) && (pS10 > pS20);
+                            let pPO_L = (pS20 > pS10) && (pS10 > prev.v);
+                            
+                            // 今回(現在)のPO状態
+                            let cPO_S = (curr.v > cS10) && (cS10 > cS20); // ショート: 青 > 黄 > 赤(ピンク)
+                            let cPO_L = (cS20 > cS10) && (cS10 > curr.v); // ロング: 赤(ピンク) > 黄 > 青
+
+                            // 新たにPOが形成された瞬間を検知
+                            if(cPO_S && !pPO_S) {
+                                this.poSignals.push({ idx: i, type: 'SHORT', price: curr.p });
+                            }
+                            if(cPO_L && !pPO_L) {
+                                this.poSignals.push({ idx: i, type: 'LONG', price: curr.p });
+                            }
                         }
                     }
                 }
