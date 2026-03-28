@@ -3,53 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FX Dashboard v1.2.4 (NY Sniper)</title>
+    <title>USDJPY NY Sniper Dashboard</title>
     <style>
         :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; }
         * { box-sizing: border-box; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
-        header { padding: 8px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; }
+        header { padding: 8px 12px; background: var(--panel); border-bottom: 1px solid #363c4e; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
         .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
-        .file-label { background: var(--blue); color: white; padding: 8px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
+        .file-label { background: var(--blue); color: white; padding: 8px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .file-label:hover { background: #1e4eb8; }
         input[type="file"] { display: none; }
-        #pivot-input { width: 100%; height: 45px; background: #2a2e39; border: 1px solid #363c4e; color: #fff; font-size: 11px; border-radius: 4px; padding: 6px; resize: none; }
-        #dashboard { flex-grow: 1; overflow-y: auto; padding: 8px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: start; }
-        @media (max-width: 768px) { #dashboard { grid-template-columns: 1fr; } .chart-card { height: 280px; } }
-        .chart-card { background: var(--panel); border: 1px solid #363c4e; border-radius: 6px; display: flex; flex-direction: column; height: 320px; overflow: hidden; }
-        .chart-header { padding: 6px 10px; border-bottom: 1px solid #363c4e; display: flex; justify-content: space-between; align-items: center; font-size: 13px; flex-shrink: 0; }
-        .canvas-wrapper { flex-grow: 1; position: relative; min-height: 0; }
+        #pivot-input { width: 100%; height: 40px; background: #2a2e39; border: 1px solid #363c4e; color: #fff; font-size: 12px; border-radius: 4px; padding: 6px; resize: none; }
+        
+        /* 単一チャート用のレイアウト変更 */
+        #dashboard { flex-grow: 1; padding: 12px; display: flex; flex-direction: column; overflow: hidden; }
+        .chart-card { background: var(--panel); border: 1px solid #363c4e; border-radius: 6px; display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
+        .chart-header { padding: 8px 12px; border-bottom: 1px solid #363c4e; display: flex; justify-content: space-between; align-items: center; font-size: 14px; flex-shrink: 0; background: #232836; }
+        .info-display { font-family: monospace; font-size: 13px; }
+        .canvas-wrapper { flex-grow: 1; position: relative; min-height: 0; cursor: crosshair; }
         canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-        .controls { padding: 4px 10px; border-top: 1px solid #363c4e; display: flex; flex-shrink: 0; }
-        .zoom-sld { width: 100%; accent-color: var(--cyan); }
+        .controls { padding: 8px 16px; border-top: 1px solid #363c4e; display: flex; flex-shrink: 0; background: #1a1e28; align-items: center; gap: 10px;}
+        .zoom-sld { flex-grow: 1; accent-color: var(--cyan); cursor: pointer; }
     </style>
 </head>
 <body>
 <header>
     <div class="row">
-        <div style="display:flex; gap:10px; align-items:center;">
-            <label class="file-label">CSV選択<input type="file" id="fileIn" multiple accept=".csv"></label>
-            <span id="status" style="font-size:12px;color:#888;">Ready</span>
+        <div style="display:flex; gap:15px; align-items:center;">
+            <label class="file-label">CSVデータ読込<input type="file" id="fileIn" accept=".csv"></label>
+            <span id="status" style="font-size:12px;color:#888;">USDJPYのデータをお待ちしています...</span>
         </div>
-        <div style="font-size:14px; font-weight:bold; color:var(--cyan);">FX Dashboard</div>
+        <div style="font-size:16px; font-weight:bold; color:var(--cyan);">USDJPY NY Sniper System</div>
     </div>
-    <textarea id="pivot-input" placeholder="ここにPivotデータをペースト (例: USD/JPY 160.0 159.5 159.0 158.5 158.0)"></textarea>
+    <textarea id="pivot-input" placeholder="ここにPivotデータをペースト (任意)"></textarea>
 </header>
 <div id="dashboard"></div>
 
 <script>
-    const CONFIG = {
-        'USDJPY': { th: 0.5 },
-        'EURUSD': { th: 1.0 },
-        'GBPUSD': { th: 1.0 },
-        'EURJPY': { th: 1.0 },
-        'GBPJPY': { th: 1.0 },
-        'GOLD': { th: 1.0 }
-    };
-
+    // USDJPY単体に設定
+    const CONFIG = { 'USDJPY': { th: 0.5 } };
     const dashboard = document.getElementById('dashboard');
     const statusEl = document.getElementById('status');
     const pivotInput = document.getElementById('pivot-input');
-    const chartMap = new Map();
+    let masterChart = null;
 
     const parseDate = (dStr) => {
         if (!dStr) return null;
@@ -60,91 +56,165 @@
 
     const syncScale = (val, basePrice) => {
         if (!val || !basePrice) return val;
-        let diff = val - basePrice;
-        return basePrice + (diff * 0.1);
+        return basePrice + ((val - basePrice) * 0.1);
     };
 
     class FXChart {
         constructor(pair) {
             this.pair = pair; this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = []; this.dataShiftedTrend = [];
             this.rawPivot = null; this.zoom = 120; this.mouseX = -1; 
-            this.signals = []; // サイン格納用配列を追加
+            this.signals = []; 
+            this.viewOffset = 0; // スクロール移動用のオフセット
             this.initDOM();
         }
 
         initDOM() {
             const card = document.createElement('div');
             card.className = 'chart-card';
-            card.innerHTML = `<div class="chart-header"><span style="color:var(--cyan);font-weight:bold">${this.pair}</span><span class="info-display" style="font-family:monospace; font-size:10px;">-</span></div><div class="canvas-wrapper"><canvas></canvas></div><div class="controls"><input type="range" class="zoom-sld" min="24" max="500" value="120"></div>`;
+            card.innerHTML = `
+                <div class="chart-header">
+                    <span style="color:var(--cyan);font-weight:bold;font-size:16px;">${this.pair}</span>
+                    <span class="info-display">-</span>
+                </div>
+                <div class="canvas-wrapper"><canvas></canvas></div>
+                <div class="controls">
+                    <span style="font-size:12px;color:#888;">Zoom:</span>
+                    <input type="range" class="zoom-sld" min="24" max="1000" value="120">
+                    <button id="resetBtn" style="background:#363c4e;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;">最新へ</button>
+                </div>`;
             dashboard.appendChild(card);
-            this.canvas = card.querySelector('canvas'); this.ctx = this.canvas.getContext('2d'); this.info = card.querySelector('.info-display');
+            
+            this.canvas = card.querySelector('canvas'); 
+            this.ctx = this.canvas.getContext('2d'); 
+            this.info = card.querySelector('.info-display');
+            
+            // ズーム操作
             card.querySelector('.zoom-sld').oninput = (e) => { this.zoom = parseInt(e.target.value); this.draw(); };
-            const handleMove = (e) => {
+            
+            // 最新位置へリセット
+            card.querySelector('#resetBtn').onclick = () => { this.viewOffset = 0; this.draw(); };
+
+            // ===== マウスとドラッグ(パン)操作の実装 =====
+            let isDragging = false;
+            let startX = 0;
+            let startOffset = 0;
+
+            const updateMouseX = (clientX) => {
                 const rect = this.canvas.getBoundingClientRect();
-                const clientX = e.clientX || (e.touches && e.touches[0]?.clientX);
-                if (clientX !== undefined) { this.mouseX = clientX - rect.left; this.draw(); }
+                this.mouseX = clientX - rect.left;
             };
-            this.canvas.addEventListener('mousemove', handleMove); this.canvas.addEventListener('touchstart', handleMove, {passive:true}); this.canvas.addEventListener('touchmove', handleMove, {passive:true});
+
+            this.canvas.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                startX = e.clientX;
+                startOffset = this.viewOffset;
+                this.canvas.style.cursor = 'grabbing';
+            });
+
+            window.addEventListener('mouseup', () => { 
+                isDragging = false; 
+                this.canvas.style.cursor = 'crosshair';
+            });
+
+            this.canvas.addEventListener('mousemove', (e) => {
+                updateMouseX(e.clientX);
+                if (isDragging) {
+                    const dx = e.clientX - startX;
+                    const pxPerCandle = (this.canvas.clientWidth - 75) / this.zoom;
+                    // 右にドラッグするとオフセット増加(過去へ)
+                    const shiftCandles = Math.round(dx / pxPerCandle);
+                    this.viewOffset = startOffset + shiftCandles;
+                }
+                this.draw();
+            });
+
+            // タッチ対応
+            this.canvas.addEventListener('touchstart', (e) => {
+                if(e.touches.length === 1) {
+                    isDragging = true;
+                    startX = e.touches[0].clientX;
+                    startOffset = this.viewOffset;
+                }
+            }, {passive:true});
+            this.canvas.addEventListener('touchmove', (e) => {
+                if(e.touches.length === 1) {
+                    updateMouseX(e.touches[0].clientX);
+                    if (isDragging) {
+                        const dx = e.touches[0].clientX - startX;
+                        const pxPerCandle = (this.canvas.clientWidth - 75) / this.zoom;
+                        this.viewOffset = startOffset + Math.round(dx / pxPerCandle);
+                    }
+                    this.draw();
+                }
+            }, {passive:true});
+            this.canvas.addEventListener('touchend', () => isDragging = false);
         }
 
         update(h1, rawPvt) {
             if(h1) {
                 this.dataH1 = h1;
+                // 10 SMA計算
                 const sma = (d, n, f) => d.map((_, i) => (i < n - 1) ? { t: d[i].t, v: NaN } : { t: d[i].t, v: d.slice(i-n+1, i+1).reduce((acc, curr) => acc + curr[f], 0) / n });
-                this.dataSMA = sma(this.dataH1, 10, 'v'); this.dataPriceSMA = sma(this.dataH1, 10, 'p');
+                this.dataSMA = sma(this.dataH1, 10, 'v'); 
+                this.dataPriceSMA = sma(this.dataH1, 10, 'p');
+                
+                // 比率基準線
                 this.dataShiftedTrend = []; let base = NaN;
-                this.dataH1.forEach(d => { if (new Date(d.t * 1000).getHours() === 23) base = d.v; this.dataShiftedTrend.push({ t: d.t, v: base }); });
+                this.dataH1.forEach(d => { if (new Date(d.t * 1000).getUTCHours() === 23) base = d.v; this.dataShiftedTrend.push({ t: d.t, v: base }); });
 
-                // ===== トレードロジックの計算 (USDJPY専用) =====
+                // ===== NYスナイパー トレードロジック =====
                 this.signals = [];
-                if (this.pair.includes("USDJPY") || this.pair.includes("JPY")) {
-                    const timeOffset = 7; // 冬時間(JST+7)。夏時間は6
-                    const getJST = (ts) => (new Date(ts * 1000).getHours() + timeOffset) % 24;
+                const timeOffset = 7; // CSV(GMT+2) から JST への変換(冬時間+7)
+                const getJST = (ts) => (new Date(ts * 1000).getUTCHours() + timeOffset) % 24;
 
-                    for(let i = 0; i < this.dataH1.length; i++) {
-                        let d = this.dataH1[i];
-                        let h = getJST(d.t);
+                const findH = (targetJST, startIndex, maxLookback = 24) => {
+                    for(let j = startIndex; j >= Math.max(0, startIndex - maxLookback); j--) {
+                        if(getJST(this.dataH1[j].t) === targetJST) return this.dataH1[j];
+                    }
+                    return null;
+                };
 
-                        if (h === 22 || h === 23) {
-                            const findH = (targetJST) => {
-                                for(let j = i; j >= Math.max(0, i - 24); j--) {
-                                    if(getJST(this.dataH1[j].t) === targetJST) return this.dataH1[j];
-                                }
-                                return null;
-                            };
+                for(let i = 0; i < this.dataH1.length; i++) {
+                    let d = this.dataH1[i];
+                    let h = getJST(d.t);
 
-                            let dEval = findH(h - 1);       // 21:00 or 22:00 JST
-                            let dStartRange = findH(h - 3); // 19:00 or 20:00 JST
-                            let dTrendStart = findH(9);     // 09:00 JST
+                    // 22:00 または 23:00 にサイン判定
+                    if (h === 22 || h === 23) {
+                        let dEval = findH((h + 24 - 1) % 24, i, 3);       // 1時間前 (21:00 or 22:00)
+                        let dStartRange = findH((h + 24 - 3) % 24, i, 5); // 3時間前 (19:00 or 20:00)
+                        let dTrendStart = findH(9, i, 16);                // 09:00
 
-                            if (dEval && dStartRange && dTrendStart) {
-                                let trendMove = Math.abs(dStartRange.p - dTrendStart.p);
-                                let rangeMove = Math.abs(dEval.p - dStartRange.p);
-                                let ratioMove = dEval.v - dStartRange.v;
+                        if (dEval && dStartRange && dTrendStart) {
+                            let trendMoveRaw = dStartRange.p - dTrendStart.p;
+                            let rangeMoveRaw = dEval.p - dStartRange.p;
+                            let ratioMove = dEval.v - dStartRange.v;
 
-                                // あなたと分析した黄金フィルター
-                                let threshTrend = 0.40;   
-                                let threshRange = 0.15;   
-                                let threshRatioMin = 0.6; 
-                                let threshRatioMax = 0.9; 
+                            let trendMove = Math.abs(trendMoveRaw);
+                            let rangeMove = Math.abs(rangeMoveRaw);
 
-                                if (trendMove >= threshTrend && rangeMove <= threshRange && 
-                                    Math.abs(ratioMove) >= threshRatioMin && Math.abs(ratioMove) <= threshRatioMax) {
-                                    
-                                    let isLong = ratioMove <= -threshRatioMin;
-                                    this.signals.push({
-                                        idx: i,
-                                        type: isLong ? 'LONG' : 'SHORT',
-                                        price: d.p
-                                    });
-                                }
+                            // 黄金フィルター設定
+                            let threshTrend = 0.40;   
+                            let threshRange = 0.15;   
+                            let threshRatioMin = 0.6; 
+                            let threshRatioMax = 0.9; 
+
+                            if (trendMove >= threshTrend && rangeMove <= threshRange && 
+                                Math.abs(ratioMove) >= threshRatioMin && Math.abs(ratioMove) <= threshRatioMax) {
+                                
+                                let isLong = ratioMove <= -threshRatioMin;
+                                this.signals.push({
+                                    idx: i,
+                                    type: isLong ? 'LONG' : 'SHORT',
+                                    price: d.p,
+                                    rat: { trend: trendMoveRaw, range: rangeMoveRaw, ratio: ratioMove }
+                                });
                             }
                         }
                     }
                 }
-                // ============================================
             }
             if(rawPvt) this.rawPivot = rawPvt;
+            this.viewOffset = 0; // 読み込み時は最新へ
             this.draw();
         }
 
@@ -155,12 +225,18 @@
             ctx.scale(dpr, dpr); ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
             if (this.dataH1.length === 0) return;
 
+            // スクロール・ズームのオフセット制御
             const viewCount = Math.min(this.zoom, this.dataH1.length);
-            const startIdx = Math.max(0, this.dataH1.length - viewCount);
+            const maxOffset = Math.max(0, this.dataH1.length - viewCount);
+            this.viewOffset = Math.max(0, Math.min(this.viewOffset, maxOffset));
+            const startIdx = this.dataH1.length - viewCount - this.viewOffset;
+            
             const getX = (i) => 10 + (i - startIdx) / viewCount * (w - 75);
             const splitY = h * 0.5;
             
-            const visible = this.dataH1.slice(startIdx);
+            const visible = this.dataH1.slice(startIdx, startIdx + viewCount);
+            if (visible.length === 0) return;
+
             const pL = visible.map(d => d.p).filter(p => !isNaN(p));
             const basePrice = pL[pL.length-1];
             const pLo = Math.min(...pL), pHi = Math.max(...pL), pR = (pHi - pLo || 0.01) * 1.3;
@@ -172,79 +248,118 @@
 
             const drawPath = (data, field, col, wd, yf, dash = []) => {
                 ctx.strokeStyle = col; ctx.lineWidth = wd; ctx.setLineDash(dash); ctx.beginPath(); let f = true;
-                for(let i = startIdx; i < this.dataH1.length; i++){
+                for(let i = startIdx; i < startIdx + viewCount; i++){
                     const val = data[i]?.[field]; if(isNaN(val)) continue;
                     const x = getX(i), y = yf(val); if(f) { ctx.moveTo(x,y); f=false; } else ctx.lineTo(x,y);
                 }
                 ctx.stroke(); ctx.setLineDash([]);
             };
 
+            // 下段：比率インジケーター描画
             drawPath(this.dataH1, 'v', "#2962ff", 2, getYr);
-            drawPath(this.dataSMA, 'v', "#ffeb3b", 1.5, getYr, [4, 2]);
-            drawPath(this.dataShiftedTrend, 'v', "#f44336", 2, getYr);
+            drawPath(this.dataSMA, 'v', "#ffeb3b", 1.5, getYr, [4, 2]); // 比率SMA
+            drawPath(this.dataShiftedTrend, 'v', "#f44336", 2, getYr); // 赤バンド
             
             const th = CONFIG[this.pair]?.th || 1.0;
             ctx.strokeStyle = "#f44336"; ctx.setLineDash([3,3]);
             [1, -1].forEach(dir => {
-                ctx.beginPath(); for(let i = startIdx; i < this.dataH1.length; i++){
+                ctx.beginPath(); for(let i = startIdx; i < startIdx + viewCount; i++){
                     const b = this.dataShiftedTrend[i]?.v; if(!isNaN(b)) ctx.lineTo(getX(i), getYr(b + dir * th));
                 }
                 ctx.stroke();
             });
 
-            drawPath(this.dataH1, 'p', "#fff", 1, getYp);
-            drawPath(this.dataPriceSMA, 'v', "#ffeb3b", 1, getYp, [2, 2]);
+            // 上段：価格インジケーター描画
+            drawPath(this.dataH1, 'p', "#fff", 2, getYp);
+            drawPath(this.dataPriceSMA, 'v', "#ffeb3b", 1.5, getYp, [3, 3]); // 価格SMA
 
-            // ===== サインの描画 =====
+            // ===== 矢印の描画関数 =====
+            const drawArrow = (x, y, dir, color) => {
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                if (dir === 'UP') {
+                    ctx.moveTo(x, y); // 先端
+                    ctx.lineTo(x - 5, y + 8); ctx.lineTo(x - 2, y + 8);
+                    ctx.lineTo(x - 2, y + 16); ctx.lineTo(x + 2, y + 16);
+                    ctx.lineTo(x + 2, y + 8); ctx.lineTo(x + 5, y + 8);
+                } else {
+                    ctx.moveTo(x, y); // 先端
+                    ctx.lineTo(x - 5, y - 8); ctx.lineTo(x - 2, y - 8);
+                    ctx.lineTo(x - 2, y - 16); ctx.lineTo(x + 2, y - 16);
+                    ctx.lineTo(x + 2, y - 8); ctx.lineTo(x + 5, y - 8);
+                }
+                ctx.closePath(); ctx.fill();
+            }
+
+            // サインの描画
             this.signals.forEach(sig => {
-                if (sig.idx >= startIdx && sig.idx < this.dataH1.length) {
+                if (sig.idx >= startIdx && sig.idx < startIdx + viewCount) {
                     const x = getX(sig.idx);
-                    const y = getYp(this.dataH1[sig.idx].p);
-                    
-                    ctx.fillStyle = sig.type === 'LONG' ? '#00bcd4' : '#f44336';
-                    ctx.beginPath();
-                    ctx.arc(x, y, 5, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    ctx.fillStyle = '#fff';
-                    ctx.font = 'bold 10px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(sig.type, x, y - 10);
+                    const isLong = sig.type === 'LONG';
+                    const y = getYp(this.dataH1[sig.idx].p) + (isLong ? 15 : -15);
+                    drawArrow(x, y, isLong ? 'UP' : 'DOWN', isLong ? '#00bcd4' : '#f44336');
                 }
             });
             
+            // Pivot描画
             if(this.rawPivot) {
                 Object.entries(this.rawPivot).forEach(([k, val]) => {
-                    if (typeof syncScale !== 'undefined') {
-                        const syncedVal = syncScale(val, basePrice);
-                        const y = getYp(syncedVal);
-                        ctx.strokeStyle = k==='P'?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.15)";
-                        ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w-70, y); ctx.stroke();
-                        ctx.fillStyle = ctx.strokeStyle; ctx.font = "9px Arial"; ctx.fillText(k, w-65, y+3);
-                    }
+                    const syncedVal = syncScale(val, basePrice);
+                    const y = getYp(syncedVal);
+                    ctx.strokeStyle = k==='P'?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.15)";
+                    ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w-70, y); ctx.stroke();
+                    ctx.fillStyle = ctx.strokeStyle; ctx.font = "10px Arial"; ctx.fillText(k, w-65, y+4);
                 });
             }
 
+            // ===== マウスオーバー (ホバー) 表示 =====
             if(this.mouseX > 0) {
                 const idx = Math.round(startIdx + (this.mouseX - 10) / (w - 75) * viewCount);
                 const d = this.dataH1[Math.max(0, Math.min(this.dataH1.length-1, idx))];
+                
                 if(d) {
                     const dt = new Date(d.t * 1000);
-                    this.info.innerHTML = `<span style="color:var(--cyan)">${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}h</span> P:${d.p.toFixed(3)} B:${d.v.toFixed(1)}`;
+                    const timeOffset = 7; 
+                    const jstH = (dt.getUTCHours() + timeOffset) % 24;
+                    const hStr = jstH.toString().padStart(2, '0');
+                    
+                    // 縦線の描画
+                    ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.setLineDash([2,2]);
+                    ctx.beginPath(); ctx.moveTo(getX(idx), 0); ctx.lineTo(getX(idx), h); ctx.stroke();
+
+                    // 基本情報
+                    let infoHtml = `<span style="color:var(--cyan)">${dt.getUTCMonth()+1}/${dt.getUTCDate()} ${hStr}:00 (JST)</span> &nbsp;&nbsp; 価格: <span style="color:#fff">${d.p.toFixed(3)}</span> &nbsp;&nbsp; 買い比率: <span style="color:#2962ff">${d.v.toFixed(1)}%</span>`;
+                    
+                    // サインの根拠を合体
+                    const sig = this.signals.find(s => s.idx === idx);
+                    if(sig) {
+                        const col = sig.type === 'LONG' ? '#00bcd4' : '#f44336';
+                        const tMove = sig.rat.trend > 0 ? '+'+sig.rat.trend.toFixed(2) : sig.rat.trend.toFixed(2);
+                        const rMove = sig.rat.ratio > 0 ? '+'+sig.rat.ratio.toFixed(2) : sig.rat.ratio.toFixed(2);
+                        infoHtml += ` &nbsp;|&nbsp; <span style="color:${col};font-weight:bold;">[${sig.type}サイン]</span> 助走:${tMove}円 / レンジ幅:${sig.rat.range.toFixed(2)}円 / 比率変動:${rMove}%`;
+                    }
+                    this.info.innerHTML = infoHtml;
                 }
             }
         }
     }
 
+    // 初期化とファイル読み込み処理
+    masterChart = new FXChart('USDJPY');
+
     document.getElementById('fileIn').onchange = async (e) => {
-        const files = Array.from(e.target.files);
-        statusEl.innerText = "Syncing...";
-        for (const file of files) {
-            const text = await file.text();
-            const pair = Object.keys(CONFIG).find(k => file.name.toUpperCase().includes(k));
-            if (pair) chartMap.get(pair).update(parseH1CSV(text), null);
-        }
-        statusEl.innerText = "Ready";
+        const file = e.target.files[0]; // USDJPY単一ファイルのみ処理
+        if (!file) return;
+        statusEl.innerText = "読み込み中...";
+        const text = await file.text();
+        
+        const parsed = text.split(/\r?\n/).filter(l => l.includes(',')).map(l => {
+            const c = l.split(',');
+            return { t: parseDate(c[0]), v: parseFloat(c[2]), p: c[3] ? parseFloat(c[3]) : NaN };
+        }).filter(d => d.t !== null).sort((a, b) => a.t - b.t);
+
+        masterChart.update(parsed, null);
+        statusEl.innerText = "データ読み込み完了";
     };
 
     pivotInput.oninput = (e) => {
@@ -252,23 +367,10 @@
         lines.forEach(line => {
             const p = line.split(/\s+/).filter(x => x.length > 0);
             if (p.length < 5) return;
-            let pair = p[0].replace('/', '').toUpperCase();
-            if (pair.includes("GOLD") || pair.includes("XAU")) pair = "GOLD";
-            if (CONFIG[pair]) {
-                const n = p.slice(1).map(x => parseFloat(x)).filter(v => !isNaN(v));
-                if (n.length >= 5) chartMap.get(pair).update(null, { P: n[3], R1: n[2], R2: n[1], S1: n[4], S2: n[5] });
-            }
+            const n = p.slice(1).map(x => parseFloat(x)).filter(v => !isNaN(v));
+            if (n.length >= 5 && masterChart) masterChart.update(null, { P: n[3], R1: n[2], R2: n[1], S1: n[4], S2: n[5] });
         });
     };
-
-    function parseH1CSV(text) {
-        return text.split(/\r?\n/).filter(l => l.includes(',')).map(l => {
-            const c = l.split(',');
-            return { t: parseDate(c[0]), v: parseFloat(c[2]), p: c[3] ? parseFloat(c[3]) : NaN };
-        }).filter(d => d.t !== null).sort((a, b) => a.t - b.t);
-    }
-
-    Object.keys(CONFIG).forEach(p => chartMap.set(p, new FXChart(p)));
 </script>
 </body>
 </html>
