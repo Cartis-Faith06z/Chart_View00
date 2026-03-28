@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>USDJPY NY Sniper Dashboard v1.3.1</title>
+    <title>USDJPY NY Sniper Dashboard v1.3.2</title>
 <style>
 :root { --bg: #131722; --panel: #1e222d; --text: #d1d4dc; --blue: #2962ff; --cyan: #00bcd4; --red: #f44336; --yellow: #ffeb3b; --green: #4caf50; --orange: #ff9800; --pink: #ff4081; }
 * { box-sizing: border-box; }
@@ -33,7 +33,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 </div>
         <div style="text-align: right;">
             <div style="font-size:16px; font-weight:bold; color:var(--cyan);">USDJPY NY Sniper System</div>
-            <div style="font-size:10px; color:#555;">Version 1.3.1</div>
+            <div style="font-size:10px; color:#555;">Version 1.3.2</div>
         </div>
 </div>
     <textarea id="pivot-input" placeholder="ここにPivotデータをペースト (任意)"></textarea>
@@ -65,7 +65,7 @@ this.pair = pair; this.dataH1 = []; this.dataSMA = []; this.dataPriceSMA = []; t
 this.dataSMA10 = []; this.dataSMA20 = []; this.dataSMA75 = [];
 this.rawPivot = null; this.zoom = 120; this.mouseX = -1; 
             this.signals = []; 
-            this.poSignals = []; 
+            this.poStates = []; // POの背景状態を格納
             this.viewOffset = 0; 
 this.initDOM();
 }
@@ -81,8 +81,8 @@ card.className = 'chart-card';
                 <div class="canvas-wrapper"><canvas></canvas></div>
                 <div class="controls">
                     <select class="sig-mode" style="background:#363c4e;color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:12px;margin-right:10px;cursor:pointer;">
-                        <option value="ny">NY Sniperサイン</option>
-                        <option value="po">PO発生サイン</option>
+                        <option value="ny_po">NYサイン ＋ PO背景表示</option>
+                        <option value="ny">NYサインのみ (背景OFF)</option>
                     </select>
                     <div style="display:flex; gap:10px; font-size:11px; align-items:center; color:#ccc;">
                         <span style="color:var(--yellow)">■ Ratio 10SMA</span>
@@ -176,7 +176,7 @@ const sma = (d, n, f) => d.map((_, i) => (i < n - 1) ? { t: d[i].t, v: NaN } : {
                 this.dataShiftedTrend = []; let base = NaN;
                 this.dataH1.forEach(d => { if (new Date(d.t * 1000).getUTCHours() === 23) base = d.v; this.dataShiftedTrend.push({ t: d.t, v: base }); });
 
-                // ===== 1. NYスナイパー トレードロジック =====
+                // ===== 1. NYスナイパー トレードロジック (矢印用) =====
 this.signals = [];
                 const timeOffset = 7; 
                 const getJST = (ts) => (new Date(ts * 1000).getUTCHours() + timeOffset) % 24;
@@ -192,7 +192,6 @@ this.signals = [];
                     let d = this.dataH1[i];
                     let h = getJST(d.t);
 
-                    // 夏時間(21時) または 冬時間(22時) に限定
                     if (h === 21 || h === 22) {
                         let dEval = findH((h + 24 - 1) % 24, i, 3);       
                         let dStartRange = findH((h + 24 - 3) % 24, i, 5); 
@@ -218,35 +217,18 @@ this.signals = [];
                     }
                 }
 
-                // ===== 2. PO（パーフェクトオーダー）発生ロジック =====
-                this.poSignals = [];
-                for(let i = 1; i < this.dataH1.length; i++) {
-                    let prev = this.dataH1[i-1];
+                // ===== 2. PO（パーフェクトオーダー）状態の計算 (背景用) =====
+                this.poStates = new Array(this.dataH1.length).fill(null);
+                for(let i = 0; i < this.dataH1.length; i++) {
                     let curr = this.dataH1[i];
-                    let h = getJST(curr.t);
+                    let cS10 = this.dataSMA10[i]?.v, cS20 = this.dataSMA20[i]?.v;
 
-                    // NYオープンの時間帯（21時・22時）のみPO発生サインを許可
-                    if (h === 21 || h === 22) {
-                        let pS10 = this.dataSMA10[i-1]?.v, pS20 = this.dataSMA20[i-1]?.v;
-                        let cS10 = this.dataSMA10[i]?.v,   cS20 = this.dataSMA20[i]?.v;
+                    if(cS10 !== undefined && cS20 !== undefined) {
+                        let cPO_S = (curr.v > cS10) && (cS10 > cS20); // ショート: 青 > 黄 > 赤(ピンク)
+                        let cPO_L = (cS20 > cS10) && (cS10 > curr.v); // ロング: 赤(ピンク) > 黄 > 青
 
-                        if(pS10 !== undefined && pS20 !== undefined && cS10 !== undefined && cS20 !== undefined) {
-                            // 前回(1時間前)のPO状態
-                            let pPO_S = (prev.v > pS10) && (pS10 > pS20);
-                            let pPO_L = (pS20 > pS10) && (pS10 > prev.v);
-                            
-                            // 今回(現在)のPO状態
-                            let cPO_S = (curr.v > cS10) && (cS10 > cS20); // ショート: 青 > 黄 > 赤(ピンク)
-                            let cPO_L = (cS20 > cS10) && (cS10 > curr.v); // ロング: 赤(ピンク) > 黄 > 青
-
-                            // 新たにPOが形成された瞬間を検知
-                            if(cPO_S && !pPO_S) {
-                                this.poSignals.push({ idx: i, type: 'SHORT', price: curr.p });
-                            }
-                            if(cPO_L && !pPO_L) {
-                                this.poSignals.push({ idx: i, type: 'LONG', price: curr.p });
-                            }
-                        }
+                        if(cPO_S) this.poStates[i] = 'SHORT';
+                        else if(cPO_L) this.poStates[i] = 'LONG';
                     }
                 }
 }
@@ -259,7 +241,11 @@ draw() {
 const ctx = this.ctx; const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
 if (w === 0 || h === 0) return;
 const dpr = window.devicePixelRatio || 1; this.canvas.width = w * dpr; this.canvas.height = h * dpr;
-ctx.scale(dpr, dpr); ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
+ctx.scale(dpr, dpr); 
+
+            // 基本背景の塗りつぶし
+            ctx.fillStyle = "#131722"; ctx.fillRect(0, 0, w, h);
+            
 if (this.dataH1.length === 0) return;
 
 const viewCount = Math.min(this.zoom, this.dataH1.length);
@@ -269,6 +255,21 @@ const viewCount = Math.min(this.zoom, this.dataH1.length);
             
 const getX = (i) => 10 + (i - startIdx) / viewCount * (w - 75);
 const splitY = h * 0.5;
+
+            // ===== POの背景色 (ゾーン) 描画 =====
+            const activeMode = this.sigModeSelect ? this.sigModeSelect.value : 'ny_po';
+            if (activeMode.includes('po')) {
+                const candleWidth = (w - 75) / viewCount;
+                for(let i = startIdx; i < startIdx + viewCount; i++){
+                    const state = this.poStates[i];
+                    if(state) {
+                        // 線に干渉しないように透かしを入れたかなり暗めの色 (不透明度 10%)
+                        ctx.fillStyle = state === 'LONG' ? 'rgba(41, 98, 255, 0.1)' : 'rgba(244, 67, 54, 0.1)';
+                        // キャンバスの上下いっぱいに帯を描画 (隙間ができないように幅をわずかに拡張)
+                        ctx.fillRect(getX(i) - candleWidth/2, 0, candleWidth + 1, h);
+                    }
+                }
+            }
 
             const visible = this.dataH1.slice(startIdx, startIdx + viewCount);
             if (visible.length === 0) return;
@@ -320,11 +321,8 @@ ctx.stroke(); ctx.setLineDash([]);
                 ctx.closePath(); ctx.fill();
             }
 
-            // サインの描画 (モード判定)
-            const activeMode = this.sigModeSelect ? this.sigModeSelect.value : 'ny';
-            const targetSignals = activeMode === 'po' ? this.poSignals : this.signals;
-
-            targetSignals.forEach(sig => {
+            // サイン(NY Sniper)の描画
+            this.signals.forEach(sig => {
                 if (sig.idx >= startIdx && sig.idx < startIdx + viewCount) {
                     const x = getX(sig.idx);
                     const isLong = sig.type === 'LONG';
@@ -361,16 +359,19 @@ ctx.stroke(); ctx.setLineDash([]);
 
                     let infoHtml = `<span style="color:var(--cyan)">${dt.getUTCMonth()+1}/${dt.getUTCDate()} ${hStr}:00 (JST)</span> &nbsp;&nbsp; 価格: <span style="color:#fff">${d.p.toFixed(3)}</span> &nbsp;&nbsp; 買い比率: <span style="color:#2962ff">${d.v.toFixed(1)}%</span>`;
                     
-                    const sig = targetSignals.find(s => s.idx === idx);
+                    // PO状態の表示追加
+                    const poState = this.poStates[idx];
+                    if (poState) {
+                        const poColor = poState === 'LONG' ? 'var(--blue)' : 'var(--red)';
+                        infoHtml += ` &nbsp;|&nbsp; <span style="color:${poColor};font-weight:bold;">[PO ${poState} 継続中]</span>`;
+                    }
+
+                    const sig = this.signals.find(s => s.idx === idx);
                     if(sig) {
                         const col = sig.type === 'LONG' ? '#00bcd4' : '#f44336';
-                        if (activeMode === 'ny') {
-                            const tMove = sig.rat.trend > 0 ? '+'+sig.rat.trend.toFixed(2) : sig.rat.trend.toFixed(2);
-                            const rMove = sig.rat.ratio > 0 ? '+'+sig.rat.ratio.toFixed(2) : sig.rat.ratio.toFixed(2);
-                            infoHtml += ` &nbsp;|&nbsp; <span style="color:${col};font-weight:bold;">[${sig.type}]</span> 助走:${tMove} / レンジ:${sig.rat.range.toFixed(2)} / 比率変:${rMove}`;
-                        } else {
-                            infoHtml += ` &nbsp;|&nbsp; <span style="color:${col};font-weight:bold;">[${sig.type} PO発生]</span>`;
-                        }
+                        const tMove = sig.rat.trend > 0 ? '+'+sig.rat.trend.toFixed(2) : sig.rat.trend.toFixed(2);
+                        const rMove = sig.rat.ratio > 0 ? '+'+sig.rat.ratio.toFixed(2) : sig.rat.ratio.toFixed(2);
+                        infoHtml += ` &nbsp;|&nbsp; <span style="color:${col};font-weight:bold;">[${sig.type} サイン]</span> 助走:${tMove} / レンジ:${sig.rat.range.toFixed(2)} / 比率変:${rMove}`;
                     }
                     this.info.innerHTML = infoHtml;
                 }
